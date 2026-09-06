@@ -1,0 +1,466 @@
+# Copyright 2019 Battelle Memorial Institute; see the LICENSE file.
+
+# pipeline-helpers.R
+
+# Pipeline shortcuts we use a lot
+
+# Make sure year and value are numeric, and within historical years
+PH_year_value_historical <- function(d) {
+  year <- value <- NULL                 # silence notes in package check
+  d %>%
+    mutate(year = as.numeric(year),
+           value = as.numeric(value)) %>%
+    filter(year %in% HISTORICAL_YEARS)
+}
+
+
+#' left_join_error_no_match
+#'
+#' A restrictive version of \code{\link{left_join}}.
+#'
+#' @param d Data frame (typically from pipeline)
+#' @param ... Rest of call to \code{\link{left_join}}
+#' @param ignore_columns Optional column name(s) to ignore, character vector
+#' @return Joined data.
+#' @details Restrictive version of dplyr::left_join meant for replacing `match` calls.
+# Ensures that number of rows of data doesn't change, and everything has matched data.
+#' @importFrom dplyr left_join
+#' @export
+left_join_error_no_match <- function(d, ..., ignore_columns = NULL) {
+  assertthat::assert_that(tibble::is_tibble(d))
+  dnames <- names(d)
+  drows <- nrow(d)
+  d <- left_join(d, ...)
+  if(nrow(d) != drows) {
+    stop("left_join_no_match: number of rows in data changed")
+  }
+  names_to_check <- dplyr::setdiff(names(d), dnames) %>% dplyr::setdiff(ignore_columns)
+  if(any(is.na(d[names_to_check]))) {
+    stop("left_join_no_match: NA values in new data columns")
+  }
+  d
+}
+
+
+#' Compute a left join, taking only the first match.
+#'
+#' In an ordinary \code{\link{left_join}}, if a row in the left operand has
+#' multiple matches in the right operand, you get a copy of the row for each
+#' match in the right operand.  Sometimes you want just one arbitrary member of
+#' the matching set.  This could be because the right operand is a one-to-many
+#' mapping, and you don't care which one you get (but you want only one), or it
+#' could be that you're trying to reproduce the behavior of legacy code that
+#' uses \code{\link{match}}, which has this behavior.  This function performs
+#' such a join.
+#'
+#' This function performs a left join, except that if the right operand has
+#' multiple matches for a row in the left operand, \emph{only} the first match
+#' is kept.  \strong{Use this function with caution.}  The results will depend
+#' on the order of the rows in the right operand, meaning that seemingly
+#' innocuous changes can produce changes in output.  Consider yourself warned.
+#'
+#' @param x Left table to join
+#' @param y Right table to join
+#' @param by Vector of id columns.  Unlike in other join variants, these must be
+#' supplied explicitly.
+#' @return Joined table.  In case of multiple matches, only the first will be
+#' included.
+#' @importFrom dplyr ungroup left_join
+left_join_keep_first_only <- function(x, y, by) {
+  ## Our strategy is to use summarize/first on y for each non-match category,
+  ## then join that to x.
+  . <- NULL                           # silence notes on package check
+  ll <- by
+  names(ll) <- NULL
+  y %>%
+    dplyr::group_by_at(tidyselect::all_of(ll)) %>%
+    dplyr::summarize_at(dplyr::vars(-tidyselect::any_of(ll)), first) %>%
+    ungroup() %>%
+    left_join(x, ., by=by)
+}
+
+
+#' Fast left join for large tables
+#'
+#' The dplyr join functions are a little on the slow side for very large
+#' tables.  This version converts its inputs
+#' \code{\link[data.table]{data.table}} structures, and uses that package's
+#' faster indexing capabilities to do a faster join.
+#'
+#' Because there is some overhead associated with setting up and indexing the
+#' data.table structures, this function is only useful when the right-side table
+#' is big enough that the savings in the join to make up for the overhead.
+#' Therefore, this function should only be used for joins that are demonstrably
+#' causing bottlenecks due to the size of the tables involved.  This version
+#' should \emph{never} be the first choice in development.  As a rule of thumb,
+#' any join that is taking more than 500ms using the dplyr join functions is a
+#' candidate for this function.
+#'
+#' When using this function, be aware that data.table has some slightly
+#' different conventions for handling duplicated columns that are not being
+#' joined on.  Suppose we have tables \code{A} and \code{B}, both of which have
+#' a column \code{value} that is not being joined on.  Then,
+#' \code{AB <- dplyr::left_join(A, B)} will have columns \code{AB$value.x} with
+#' the values from table \code{A} and \code{AB$value.y} with the values from
+#' table \code{B}.  In \code{AB <- gcamdata::fast_left_join(A, B)}, the
+#' corresponding columns will be \code{AB$i.value} for the values from table
+#' \code{A}, and \code{AB$value} \emph{(sic)} for the values from table
+#' \code{B}.  This function makes no attempt to correct the column names in the
+#' result to conform to the dplyr convention, and is therefore not exactly a
+#' drop-in replacement for \code{left_join}.  However, it is usually easy enough
+#' to make corrections on the returned value.
+#'
+#' Since this function is intended only for specialized use, we don't provide
+#' any of the other join variants like first-only or error-no-match.  The cases
+#' where that extra functionality is needed \emph{and} the tables involved are
+#' too large for the slower version of join are uncommon enough that they can be
+#' handled on a case by case basis.  (That's documentation-speak for "You're on
+#' your own.")
+#'
+#' @param left The left-side table to join.  Any class inheriting from
+#' \code{data.frame} is acceptable.
+#' @param right The right-side table to join.  Any class inheriting from
+#' \code{data.frame} is acceptable.
+#' @param by Character vector of column names to join by.
+#' @return The left join of \code{left} and \code{right}.  It will be returned
+#' as a \code{tbl_df}, irrespective of the type of the inputs.
+#' @importFrom data.table data.table
+#' @importFrom assertthat assert_that
+#' @importFrom tibble as_tibble
+fast_left_join <- function(left, right, by) {
+  assert_that(is.data.frame(left))
+  assert_that(is.data.frame(right))
+
+  ## To key or not to key?  A key is required for the right table, but it is
+  ## optional for the left, *provided* that the join columns are in order and
+  ## come before the non-join columns.  Keying takes time, but it makes the
+  ## join eventually go a little faster.  In the one example we have, it
+  ## keying the left table doesn't seem to pay for itself in the join, but
+  ## it's possible that depends on the specifics of the input.  For now we
+  ## *won't* key, instead opting to reorder the columns of the left table.
+  dtl <- data.table(left[ , union(by, names(left))])
+  dtr <- data.table(right, key=by)
+
+  as_tibble(dtr[dtl, allow.cartesian=TRUE])
+}
+
+
+#' approx_fun
+#'
+#' \code{\link{approx}} (interpolation) for use in a dplyr pipeline.
+#'
+#' @param year Numeric year, in a melted tibble or data frame
+#' @param value Numeric value to interpolate
+#' @param rule Rule to use; 1 - linear interpolation, 2 = constant. see \code{\link{approx}}
+#' @details This was \code{gcam_interp} in the original data system.
+#' @return Interpolated values.
+#' @importFrom assertthat assert_that
+#' @export
+#' @examples
+#' df <- data.frame(year = 1:5, value = c(1, 2, NA, 4, 5))
+#' approx_fun(df$year, df$value, rule = 2)
+approx_fun <- function(year, value, rule = 1) {
+  assert_that(is.numeric(year))
+  assert_that(is.numeric(value))
+
+  # trap leftover rule=3 from old processing chunks which should now explicitly call
+  # fill_exp_decay_extrapolate
+  if(length(rule) > 1 || rule != 3) {
+    tryCatch(stats::approx(as.vector(year), value, rule = rule, xout = year, ties = mean)$y,
+             error = function(e) NA)
+
+  } else {
+    stop("Use fill_exp_decay_extrapolate!")
+  }
+}
+
+#' approx_fun_constant
+#'
+#' \code{\link{approx}} (interpolation) for use in a dplyr pipeline.
+#'
+#' @param year Numeric year, in a melted tibble or data frame
+#' @param value Numeric value to interpolate
+#' @param rule Rule to use; see \code{\link{approx}} and details
+#' @details This is a slight change to approx_fun that can be used if there is only one value, not two to interpolate between.
+#' @details This function will apply the one value you do have to all other years in a grouping.
+#' @return Interpolated values.
+#' @importFrom assertthat assert_that
+#' @export
+#' @examples
+#' df <- data.frame(year = 1:5, value = c(1, 2, NA, 4, 5))
+#' approx_fun_constant(df$year, df$value, rule = 2)
+approx_fun_constant <- function(year, value, rule = 1) {
+  assert_that(is.numeric(year))
+  assert_that(is.numeric(value))
+
+  if(rule == 1 | rule == 2) {
+    tryCatch(stats::approx(as.vector(year), value, rule = rule, xout = year, ties = mean, method = "constant")$y,
+             error = function(e) NA)
+
+  } else {
+    stop("Use fill_exp_decay_extrapolate!")
+  }
+}
+
+#' repeat_add_columns
+#'
+#' Repeat a data frame for each entry in a second, binding the columns together.
+#'
+#' @param x Data frame (tibble) to repeat
+#' @param y A copy of \code{x} is created for each row of this tibble
+#' @return A repeated \code{x} with columns from \code{y} added.
+#' @details This corresponds to \code{repeat_and_add_vector} in the old data system.
+#' @importFrom assertthat assert_that
+#' @importFrom dplyr full_join mutate
+#' @author BBL
+#' @export
+#' @examples
+#' x <- tibble::tibble(x = 1:3)
+#' y <- tibble::tibble(y = c(4, 5), z = c(6, 7))
+#' repeat_add_columns(x, y)
+repeat_add_columns <- function(x, y) {
+  UNIQUE_JOIN_FIELD <- NULL           # silence package checks.
+  assert_that(tibble::is_tibble(x))
+  assert_that(tibble::is_tibble(y))
+
+  x %>%
+    mutate(UNIQUE_JOIN_FIELD = 1) %>%
+    full_join(mutate(y, UNIQUE_JOIN_FIELD = 1), by = "UNIQUE_JOIN_FIELD", relationship = "many-to-many") %>%
+    select(-UNIQUE_JOIN_FIELD)
+}
+
+#' Change a particular ISO code in a table to another code.
+#'
+#' A few countries have changed their ISO codes over time.  Usually this is because countries
+#' split or merged; occasionally it's because they just didn't like the old one.  This function
+#' allows us to insert an ISO code change into a pipeline.
+#'
+#' If you're dealing with a split or a merger, then making this change will generally create
+#' duplicate rows, so you should follow it up with an appropriate aggregation.
+#'
+#' @param d The data to be transformed
+#' @param from The old ISO code
+#' @param to The replacement ISO code
+#' @param col The name of the columns with the ISO codes (default = 'iso')
+#' @return Tibble with the old iso code replaced by the new one.
+#' @export
+change_iso_code <- function(d, from, to, col = "iso") {
+  assertthat::assert_that(tibble::is_tibble(d))
+  iso <- d[[col]]
+  d[[col]] <- if_else(iso == from, to, iso)
+  d
+}
+
+#' Standardize the ISO column by converting to lower case and renaming to 'iso'
+#'
+#' Most of the processing functions expect ISO codes to be in lower case and in
+#' a column called ISO.
+#' @param d The data to be transformed.
+#' @param col The column currently containing the iso codes (default = 'iso')
+#' @param delete_original Delete original column? Logical
+#' @return Tibble with the iso codes converted to lower case. If the column with
+#'   the codes was not called 'iso', it will be renamed to 'iso'.
+#' @export
+standardize_iso <- function(d, col = "iso", delete_original = TRUE) {
+  assertthat::assert_that(tibble::is_tibble(d))
+  d[["iso"]] <- tolower(d[[col]])
+  if(delete_original && col != "iso") {
+    # This is surprisingly hard to do using dplyr
+    d[[col]] <- NULL
+  }
+  d
+}
+
+#' Protect column names that are bare integers from being interpreted as integers
+#'
+#' \code{protect_integer_cols} will prepend an 'X' to column names that are bare
+#' integers to protect them from being misinterpreted during sensitive
+#' operations (see below).  \code{unprotect_integer_cols} will reverse the
+#' effect, reverting the column names to their original form.
+#'
+#' Some of our data frames have column names that are years, such as "2005".  In
+#' some cases a column name of this form can be misinterpreted as a column
+#' index, the (likely nonexistent) 2005th column in this example.  The *_if
+#' functions in dplyr are examples of such circumstances.  Protecting the column
+#' names with a leading character allows these functions to perform normally.
+#'
+#' Much of the data system is expecting years in column names to be bare
+#' integers; therefore, you should unprotect the column names as soon as the
+#' sensitive operations are complete.
+#' @param d The data to have integer column names protected or unprotected
+#' @return Tibble with the integer column names protected
+#' @export
+#' @examples
+#' library(magrittr)
+#' df <- dplyr::tibble(iso=c('bad','dum'), `2005`=c(123.45, NA), `2050`=c(867, 5309))
+#' protect_integer_cols(df) %>%
+#'     dplyr::select_if(function(col) {!any(is.na(col))}) %>%
+#'     unprotect_integer_cols
+protect_integer_cols <- function(d) {
+  assertthat::assert_that(tibble::is_tibble(d))
+  names(d) <- sub('^([0-9]+)$', 'X\\1', names(d))
+  d
+}
+
+#' @rdname protect_integer_cols
+#' @export
+unprotect_integer_cols <- function(d) {
+  assertthat::assert_that(tibble::is_tibble(d))
+  names(d) <- sub('^X([0-9]+)$', '\\1', names(d))
+  d
+}
+
+
+#' missing_data
+#'
+#' @return A tibble used to signal missing (not created) data
+missing_data <- function() {
+  tibble(x = NA_real_) %>%
+    add_title("Data not created") %>%
+    add_units("Data not created") %>%
+    add_comments("Data not created") %>%
+    add_flags(FLAG_NO_TEST, FLAG_NO_OUTPUT)
+}
+
+#' Calculate a gross domestic product (GDP) implicit price deflator between two years.
+#'
+#' The GDP deflator is a measure of price inflation with respect to a
+#' specific base year; it allows us to back out the effects of inflation when we
+#' compare prices over time.  This function calculates a deflator given a base
+#' year (the year to convert from) and a conversion year (the year to convert
+#' to).  To use the deflator, multiply prices in base-year dollars by the deflator; the
+#' result will be prices in the converted dollar year.
+#'
+#' @param year Year to convert TO.
+#' @param base_year Year to convert FROM.
+#' @return US GDP Deflator.  Multiply to convert FROM \code{base_year} dollars TO
+#' \code{year} dollars.
+#' @source U.S. Bureau of Economic Analysis, Gross domestic product (implicit
+#' price deflator) [A191RD3A086NBEA], retrieved from FRED, Federal Reserve Bank
+#' of St. Louis; https://fred.stlouisfed.org/series/A191RD3A086NBEA, April 12,
+#' 2017
+#' @author BBL
+#' @export
+#' @examples
+#' gdp_bil_1990USD <- c(4770, 4779, 4937)
+#' gdp_bil_2010USD <- gdp_bil_1990USD * gdp_deflator(2010, base_year = 1990)
+gdp_deflator <- function(year, base_year) {
+  # This time series is the BEA "A191RD3A086NBEA" product
+  # Downloaded March 3, 2023 from https://fred.stlouisfed.org/series/A191RD3A086NBEA
+  gdp_years <- 1929:2024
+  gdp <- c(8.778, 8.457, 7.587, 6.700, 6.514, 6.871, 7.012, 7.097, 7.402,
+  7.190, 7.120, 7.205, 7.692, 8.304, 8.683, 8.890, 9.120, 10.296, 11.426,
+  12.067, 12.046, 12.195, 13.060, 13.286, 13.447, 13.572, 13.801, 14.271,
+  14.744, 15.080, 15.287, 15.495, 15.660, 15.850, 16.032, 16.276, 16.574,
+  17.039, 17.533, 18.280, 19.176, 20.189, 21.212, 22.130, 23.342, 25.443,
+  27.800, 29.330, 31.152, 33.343, 36.110, 39.371, 43.097, 45.759, 47.552,
+  49.267, 50.826, 51.849, 53.134, 55.008, 57.165, 59.305, 61.310, 62.707,
+  64.194, 65.564, 66.939, 68.164, 69.340, 70.119, 71.111, 72.722, 74.360,
+  75.515, 77.006, 79.077, 81.556, 84.071, 86.349, 88.013, 88.556, 89.632,
+  91.481, 93.185, 94.771, 96.421, 97.316, 98.241, 100.000, 102.291, 104.008,
+  105.381, 110.213, 117.973, 122.273, 125.23)
+  names(gdp) <- gdp_years
+
+  assert_that(all(year %in% gdp_years))
+  assert_that(all(base_year %in% gdp_years))
+
+  as.vector(unlist(gdp[as.character(year)] / gdp[as.character(base_year)]))
+}
+
+
+#' Helper function: call \code{tidyr::gather} for year-like columns and convert them to integers
+#'
+#' @param d Data frame to operate on (a tibble)
+#' @param value_col Name of the resulting (gathered) value column, string or unquoted column name
+#' @param year_pattern Year pattern to match against
+#' @param na.rm Remove NAs flag passed on to tidyr::gather
+#' @return The gathered (reshaped) data frame.
+#' @importFrom dplyr matches mutate
+#' @importFrom tidyr gather
+#' @export
+gather_years <- function(d, value_col = "value", year_pattern = YEAR_PATTERN, na.rm = FALSE) {
+  assert_that(is_tibble(d))
+  assert_that(is.character(value_col))
+  assert_that(is.character(year_pattern))
+
+  . <- year <- value <- NULL  # silence package check notes
+
+  # find year columns
+  year_cols_ind <- grepl(year_pattern, names(d)) | (names(d) %in% names(YEAR_RECODE))
+  year_cols <- names(d)[year_cols_ind]
+  # recode any columns that match the set_year constants
+  year_cols_recoded <- as.character(dplyr::recode(year_cols, !!!YEAR_RECODE, .default = suppressWarnings(as.numeric(year_cols))))
+
+  # do some error checking to ensure we do not resolve to year columns that are no
+  # longer in order
+  # note that while this _may_ actually be ok (constant values or NAs that would be removed),
+  # for now, we just keep the error checking simple
+  for(year_ind in seq_along(year_cols)) {
+    if(year_ind > 1) {
+      prev_year_recoded <- year_cols_recoded[year_ind-1]
+      curr_year_recoded <- year_cols_recoded[year_ind]
+      if(prev_year_recoded >= curr_year_recoded) {
+        # generate an error message noting the years that are out of order
+        prev_year_col <- year_cols[year_ind-1]
+        message_list <- c("gather_years resolved to out of order years: ", prev_year_col)
+        # if the column was recoded note the constant as well as the resolved year
+        if(prev_year_col != prev_year_recoded) {
+          message_list <- c(message_list, " (", prev_year_recoded, ")")
+        }
+        curr_year_col <- year_cols[year_ind]
+        message_list <- c(message_list,  " >= ", curr_year_col)
+        if(curr_year_col != curr_year_recoded) {
+          message_list <- c(message_list, " (", curr_year_recoded, ")")
+        }
+        stop(paste0(message_list))
+      }
+    }
+  }
+
+  # actually rename columns and do the gather
+  names(d)[year_cols_ind] = year_cols_recoded
+  d %>%
+    tidyr::gather(year, {{value_col}}, dplyr::any_of(year_cols_recoded), na.rm = na.rm) %>%
+    mutate(year = as.integer(year))
+}
+
+#' Helper function to extend data which is in long format.
+#'
+#' Given a data frame the \code{var} column which contains the data and a set of years
+#' for which all years must have data this helper expands the data and fills using
+#' \code{approx_fun(rule=2)}, in other words will copy data beyond the end years.
+#' Thus making it suitable to extend historical data sets by copying forward.
+#' @param data The data to extend
+#' @param var The column which contains the data to copy
+#' @param all_years The set of years for which there must be data.
+#' @param ... The result of the columns to "nest" by
+#' @return The data extended to include all requested years.
+#' @importFrom dplyr select distinct left_join group_by arrange mutate ungroup
+#' @export
+copy_data_forward_long <- function(data, var, all_years, ... ) {
+  data %>%
+    select(...) %>%
+    distinct() %>%
+    repeat_add_columns(tibble(year=c(unique(c(data$year, all_years))))) %>%
+    left_join(data, by=names(.), relationship = "many-to-many") %>%
+    group_by(...) %>%
+    arrange(year, .by_group = TRUE) %>%
+    mutate("{var}" := approx_fun(year, .data[[var]], rule=2)) %>%
+    ungroup()
+}
+
+#' Helper function to extend data which is in wide format.
+#'
+#' Given a data frame and a \code{copy_from_year} column this helper will copy it
+#' to new columns for each \code{copy_to_years}.
+#' @param data The data to extend
+#' @param copy_from_year The column which contains the data to copy
+#' @param all_years The set of years for which there must be data.
+#' @return The data extended to include all requested years.
+#' @export
+copy_data_forward_wide <- function(data, copy_from_year, copy_to_years) {
+  fill_cols <- lapply(copy_to_years, function(x){data %>% pull(as.character(copy_from_year))})
+  names(fill_cols) <- copy_to_years
+  data %>%
+    dplyr::bind_cols(tibble::as_tibble(fill_cols))
+}
