@@ -182,6 +182,8 @@ module_emissions_L241.fgas <- function(command, ...) {
       mutate(ratio = EF / EF[year == min(ratio_years)]) %>%
       ungroup %>%
       mutate(Species = gsub("-", "", Species)) %>%
+      # Match the Velders name HFC-43-10mee to the historical GCAM gas name.
+      mutate(Species = if_else(Species == "HFC4310mee", "HFC43", Species)) %>%
       filter(year %in% emissions.GV_YEARS) ->
       L241.FUT_EF_Ratio
 

@@ -389,17 +389,19 @@ module_aglu_L165.ag_water_R_C_Y_GLU_irr <- function(command, ...) {
     # GCAM-Pacific: fill only regions with irrigated production but no
     # area-weighted efficiency using explicit, auditable source countries.
     PAC_IRRIGATION_EFFICIENCY_SOURCES <- tibble(
-      GCAM_region_ID = c(29L, 40L, 42L, 44L),
-      source_iso = c("png", "mys", "idn", "png")
+      GCAM_region_ID = iso_GCAM_regID$GCAM_region_ID[iso_GCAM_regID$iso == "sgp"],
+      source_iso = "mys"
     )
     L161.ag_irrProd_Mt_R_C_Y_GLU %>%
       distinct(GCAM_region_ID) %>%
       anti_join(L165.ag_IrrEff_R, by = "GCAM_region_ID") ->
       L165.missing_IrrEff_R
-    assert_that(setequal(
-      L165.missing_IrrEff_R$GCAM_region_ID,
-      PAC_IRRIGATION_EFFICIENCY_SOURCES$GCAM_region_ID
-    ))
+    if (any(!L165.missing_IrrEff_R$GCAM_region_ID %in%
+            PAC_IRRIGATION_EFFICIENCY_SOURCES$GCAM_region_ID)) {
+      stop("Missing irrigation efficiencies without an approved country proxy for active region IDs: ",
+           paste(setdiff(L165.missing_IrrEff_R$GCAM_region_ID,
+                         PAC_IRRIGATION_EFFICIENCY_SOURCES$GCAM_region_ID), collapse = ", "))
+    }
     PAC_IRRIGATION_EFFICIENCY_SOURCES %>%
       semi_join(L165.missing_IrrEff_R, by = "GCAM_region_ID") %>%
       left_join_error_no_match(

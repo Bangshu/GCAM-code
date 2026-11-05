@@ -19,7 +19,8 @@
 module_aglu_L109.ag_an_ALL_R_C_Y <- function(command, ...) {
 
   MODULE_INPUTS <-
-    c("L101.ag_Food_Mt_R_C_Y",
+    c(FILE = "common/iso_GCAM_regID",
+      "L101.ag_Food_Mt_R_C_Y",
       "L101.ag_Prod_Mt_R_C_Y",
       "L101.an_Food_Mt_R_C_Y",
       "L101.an_Prod_Mt_R_C_Y",
@@ -580,16 +581,16 @@ module_aglu_L109.ag_an_ALL_R_C_Y <- function(command, ...) {
                (year == 1975 & GCAM_region_ID == 10 & GCAM_commodity == "Soybean") |
                (year == 1975 & GCAM_region_ID == 18 & GCAM_commodity == "OtherGrain") |
                (year == 2021 & GCAM_region_ID == 8 & GCAM_commodity == "Legumes") |
-               (year == 1990 & GCAM_region_ID == 35 & GCAM_commodity == "Soybean") |
-               (year == 1990 & GCAM_region_ID == 41 & GCAM_commodity == "RootTuber")) %>%
+               (year == 1990 & GCAM_region_ID == iso_GCAM_regID$GCAM_region_ID[iso_GCAM_regID$iso == "khm"] & GCAM_commodity == "Soybean") |
+               (year == 1990 & GCAM_region_ID == iso_GCAM_regID$GCAM_region_ID[iso_GCAM_regID$iso == "tha"] & GCAM_commodity == "RootTuber")) %>%
       bind_rows(
         L109.ag_ALL_Mt_R_C_Y_b %>%
           filter(!(year == 1975 & GCAM_region_ID == 5 & GCAM_commodity == "MiscCrop") &
                    !(year == 1975 & GCAM_region_ID == 10 & GCAM_commodity == "Soybean") &
                    !(year == 1975 & GCAM_region_ID == 18 & GCAM_commodity == "OtherGrain") &
                    !(year == 2021 & GCAM_region_ID == 8 & GCAM_commodity == "Legumes") &
-                   !(year == 1990 & GCAM_region_ID == 35 & GCAM_commodity == "Soybean") &
-                   !(year == 1990 & GCAM_region_ID == 41 & GCAM_commodity == "RootTuber"))
+                   !(year == 1990 & GCAM_region_ID == iso_GCAM_regID$GCAM_region_ID[iso_GCAM_regID$iso == "khm"] & GCAM_commodity == "Soybean") &
+                   !(year == 1990 & GCAM_region_ID == iso_GCAM_regID$GCAM_region_ID[iso_GCAM_regID$iso == "tha"] & GCAM_commodity == "RootTuber"))
       ) ->
       L109.ag_ALL_Mt_R_C_Y
 
@@ -620,7 +621,7 @@ module_aglu_L109.ag_an_ALL_R_C_Y <- function(command, ...) {
       add_comments("Calculate primary agricultural good mass balances by GCAM region, commodity and year") %>%
       add_comments("Adjusts global and regional net exports to remove net negative other uses") %>%
       add_legacy_name("L109.ag_ALL_Mt_R_C_Y") %>%
-      add_precursors("L101.ag_Food_Mt_R_C_Y",
+      add_precursors("common/iso_GCAM_regID", "L101.ag_Food_Mt_R_C_Y",
                      "L101.ag_Prod_Mt_R_C_Y",
                      "L108.ag_Feed_Mt_R_C_Y",
                      "L108.ag_NetExp_Mt_R_FodderHerb_Y",

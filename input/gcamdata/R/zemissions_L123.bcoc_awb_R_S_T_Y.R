@@ -84,7 +84,7 @@ module_emissions_L123.bcoc_awb_R_S_T_Y <- function(command, ...) {
     # Produce outputs
     L121.AWB_Emissions_FactorR_C_Y_GLU %>%
       add_title("Emission factors for BC and OC emissions by GCAM GLU and crop") %>%
-      add_units("kt/Mt") %>%
+      add_units("Tg/Mt") %>%
       add_comments("Derived from RCP year 2000 AWB emissions by region and allocated according to above ground non-harvested biomass") %>%
       add_legacy_name("L123.bcoc_tgmt_R_awb_2000") %>%
       add_precursors("common/iso_GCAM_regID",

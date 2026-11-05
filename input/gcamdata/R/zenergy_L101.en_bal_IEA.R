@@ -24,6 +24,7 @@ module_energy_L101.en_bal_IEA <- function(command, ...) {
              FILE = "energy/mappings/IEA_product_fuel",
              FILE = "energy/mappings/IEA_sector_fuel_modifications",
              FILE = "energy/mappings/enduse_fuel_aggregation",
+             OPTIONAL_FILE = "energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source",
              "L100.IEA_en_bal_ctry_hist"))
   } else if(command == driver.DECLARE_OUTPUTS) {
     return(c("L101.en_bal_EJ_R_Si_Fi_Yh_full",
@@ -45,15 +46,103 @@ module_energy_L101.en_bal_IEA <- function(command, ...) {
     IEA_product_fuel <- get_data(all_data, "energy/mappings/IEA_product_fuel")
     IEA_sector_fuel_modifications <- get_data(all_data, "energy/mappings/IEA_sector_fuel_modifications")
     enduse_fuel_aggregation <- get_data(all_data, "energy/mappings/enduse_fuel_aggregation")
+    L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source <- get_data(all_data, "energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source")
     L100.IEA_en_bal_ctry_hist <- get_data(all_data, "L100.IEA_en_bal_ctry_hist")
 
+    # A PAC country-level L101 source supersedes the legacy region IDs by remapping ISO
+    # codes through the active regional contract. Without it, retain the v9.1 paths.
+    if(!is.null(L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source)) {
+      required_columns <- c("iso", "sector", "fuel", "year", "value")
+      if(!all(required_columns %in% colnames(L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source))) {
+        stop("energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source is missing required columns.")
+      }
+
+      L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source %>%
+        select(iso, sector, fuel, year, value) %>%
+        mutate(iso = tolower(iso)) %>%
+        left_join_error_no_match(select(iso_GCAM_regID, iso, GCAM_region_ID), by = "iso") %>%
+        group_by(iso, GCAM_region_ID, sector, fuel, year) %>%
+        summarise(value = sum(value)) %>%
+        ungroup() %>%
+        mutate(value = if_else(value < 0 & grepl("industry", sector), 0, value),
+               value = if_else(value < 0 & sector == "in_gas processing", 0, value)) ->
+        L101.en_bal_EJ_ctry_Si_Fi_Yh_full
+
+      L101.en_bal_EJ_ctry_Si_Fi_Yh_full %>%
+        group_by(GCAM_region_ID, sector, fuel, year) %>%
+        summarise(value = sum(value)) %>%
+        ungroup() ->
+        L101.en_bal_EJ_R_Si_Fi_Yh
+
+      L101.en_bal_EJ_R_Si_Fi_Yh %>%
+        distinct(sector, fuel) %>%
+        repeat_add_columns(select(A_regions, GCAM_region_ID)) %>%
+        select(GCAM_region_ID, sector, fuel) %>%
+        repeat_add_columns(tibble::tibble(year = HISTORICAL_YEARS)) %>%
+        left_join(L101.en_bal_EJ_R_Si_Fi_Yh,
+                  by = c("GCAM_region_ID", "sector", "fuel", "year")) %>%
+        replace_na(list(value = 0)) ->
+        L101.en_bal_EJ_R_Si_Fi_Yh_full
+
+      L101.en_bal_EJ_ctry_Si_Fi_Yh_full %>%
+        filter(grepl("trn", sector)) %>%
+        left_join_error_no_match(select(enduse_fuel_aggregation, fuel, trn), by = "fuel") %>%
+        filter(!is.na(trn)) %>%
+        select(iso, sector, fuel = trn, year, value) %>%
+        group_by(iso, sector, fuel, year) %>%
+        summarise(value = sum(value)) %>%
+        ungroup() ->
+        L101.in_EJ_ctry_trn_Fi_Yh
+
+      L101.en_bal_EJ_ctry_Si_Fi_Yh_full %>%
+        filter(grepl("bld", sector)) %>%
+        left_join_error_no_match(select(enduse_fuel_aggregation, fuel, bld), by = "fuel") %>%
+        filter(!is.na(bld)) %>%
+        select(iso, sector, fuel = bld, year, value) %>%
+        group_by(iso, sector, fuel, year) %>%
+        summarise(value = sum(value)) %>%
+        ungroup() ->
+        L101.in_EJ_ctry_bld_Fi_Yh
+
+      # This branch consumes the supplied PAC balance, not the raw IEA balance.
+      L101.en_bal_EJ_ctry_Si_Fi_Yh_full %>%
+        add_title("PAC energy balances by country / GCAM region / sector / fuel / year") %>%
+        add_units("EJ") %>%
+        add_comments("Energy-group PAC source remapped through the active ISO table; existing balance cleanup retained.") %>%
+        add_legacy_name("L101.en_bal_EJ_ctry_Si_Fi_Yh_full") %>%
+        add_precursors("energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source", "common/iso_GCAM_regID") ->
+        L101.en_bal_EJ_ctry_Si_Fi_Yh_full
+
+      L101.en_bal_EJ_R_Si_Fi_Yh_full %>%
+        add_title("PAC energy balances by GCAM region / sector / fuel / historical year") %>%
+        add_units("EJ") %>%
+        add_comments("Country balances aggregated to active regions; existing historical template and zero completion retained.") %>%
+        add_legacy_name("L101.en_bal_EJ_R_Si_Fi_Yh_full") %>%
+        add_precursors("energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source", "common/iso_GCAM_regID", "energy/A_regions") ->
+        L101.en_bal_EJ_R_Si_Fi_Yh_full
+
+      L101.in_EJ_ctry_trn_Fi_Yh %>%
+        add_title("PAC transportation energy consumption by country / sector / fuel / year") %>%
+        add_units("EJ") %>%
+        add_comments("Transportation subset of the PAC country balance, using the existing end-use fuel aggregation.") %>%
+        add_legacy_name("L101.in_EJ_ctry_trn_Fi_Yh") %>%
+        add_precursors("energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source", "common/iso_GCAM_regID", "energy/mappings/enduse_fuel_aggregation") ->
+        L101.in_EJ_ctry_trn_Fi_Yh
+
+      L101.in_EJ_ctry_bld_Fi_Yh %>%
+        add_title("PAC building energy consumption by country / sector / fuel / year") %>%
+        add_units("EJ") %>%
+        add_comments("Building subset of the PAC country balance, using the existing end-use fuel aggregation.") %>%
+        add_legacy_name("L101.in_EJ_ctry_bld_Fi_Yh") %>%
+        add_precursors("energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source", "common/iso_GCAM_regID", "energy/mappings/enduse_fuel_aggregation") ->
+        L101.in_EJ_ctry_bld_Fi_Yh
 
     # L100.IEA_en_bal_ctry_hist might be null (meaning the data system is running
     # without the proprietary IEA data files). If this is the case, we substitute
     # pre-built output datasets. Rebuild the regional table from the country-level
     # prebuilt table so the active ISO map, rather than the old embedded region IDs,
-    # controls the 54-region aggregation.
-    if(is.null(L100.IEA_en_bal_ctry_hist)) {
+    # controls the active regional aggregation.
+    } else if(is.null(L100.IEA_en_bal_ctry_hist)) {
       L101.en_bal_EJ_ctry_Si_Fi_Yh_full <- extract_prebuilt_data("L101.en_bal_EJ_ctry_Si_Fi_Yh_full")
       L101.in_EJ_ctry_trn_Fi_Yh <- extract_prebuilt_data("L101.in_EJ_ctry_trn_Fi_Yh")
       L101.in_EJ_ctry_bld_Fi_Yh <- extract_prebuilt_data("L101.in_EJ_ctry_bld_Fi_Yh")
@@ -284,6 +373,7 @@ module_energy_L101.en_bal_IEA <- function(command, ...) {
       add_legacy_name("L101.en_bal_EJ_R_Si_Fi_Yh_full") %>%
       add_precursors("common/iso_GCAM_regID", "energy/A_regions", "energy/mappings/IEA_flow_sector", "energy/mappings/IEA_product_fuel",
                      "energy/mappings/IEA_sector_fuel_modifications", "energy/mappings/enduse_fuel_aggregation",
+                     "energy/L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source",
                      "L100.IEA_en_bal_ctry_hist") ->
       L101.en_bal_EJ_R_Si_Fi_Yh_full
 
@@ -308,11 +398,13 @@ module_energy_L101.en_bal_IEA <- function(command, ...) {
       same_precursors_as(L101.en_bal_EJ_R_Si_Fi_Yh_full) ->
       L101.in_EJ_ctry_bld_Fi_Yh
 
-    # At this point outputs should be identical to the prebuilt versions
-    verify_identical_prebuilt(L101.en_bal_EJ_R_Si_Fi_Yh_full,
-                              L101.en_bal_EJ_ctry_Si_Fi_Yh_full,
-                              L101.in_EJ_ctry_trn_Fi_Yh,
-                              L101.in_EJ_ctry_bld_Fi_Yh)
+    # The PAC source intentionally differs from the legacy 32-region prebuilt data.
+    if(is.null(L101.en_bal_EJ_ctry_Si_Fi_Yh_full_PAC_source)) {
+      verify_identical_prebuilt(L101.en_bal_EJ_R_Si_Fi_Yh_full,
+                                L101.en_bal_EJ_ctry_Si_Fi_Yh_full,
+                                L101.in_EJ_ctry_trn_Fi_Yh,
+                                L101.in_EJ_ctry_bld_Fi_Yh)
+    }
     }
 
     return_data(L101.en_bal_EJ_R_Si_Fi_Yh_full, L101.en_bal_EJ_ctry_Si_Fi_Yh_full,

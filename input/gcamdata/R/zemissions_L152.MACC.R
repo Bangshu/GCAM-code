@@ -45,7 +45,7 @@ module_emissions_L152.MACC <- function(command, ...) {
     return(c("L152.MAC_pct_R_S_Proc_EPA"))
   } else if(command == driver.MAKE) {
 
-    Process <- EPA_region <- cost_2024USD_tCO2e <- reduction_MtCO2e <- Sector <-
+    Process <- EPA_region <- cost_EPAUSD_tCO2e <- reduction_MtCO2e <- Sector <-
       EPA_region_code <- cost_1990USD_tCe <- year <- baseline_MtCO2e <-
       reduction_pct <- GCAM_region_ID_missing <- NULL       # silence package check.
 
@@ -81,17 +81,27 @@ module_emissions_L152.MACC <- function(command, ...) {
     if(all(sapply(EPA_RAW_FN, function(fn) {is.null(get_data(all_data, fn))}))) {
       # raw EPA MACC datasets not available, so we will use the prebuilt version
       L152.MAC_pct_R_S_Proc_EPA <- extract_prebuilt_data("L152.MAC_pct_R_S_Proc_EPA")
+      if(!setequal(unique(L152.MAC_pct_R_S_Proc_EPA$GCAM_region_ID),
+                   unique(EPA_ISO_map$GCAM_region_ID))) {
+        stop("EPA MAC prebuilt regions do not match common/iso_GCAM_regID; provide the declared official EPA_2025 inputs.")
+      }
     }
     else {
       # note if some expected data are NULL we will still proceed and let the processing
       # fail naturally
 
+    # Retain the explicit GCAM v9.1 EPA2025 input convention, not the release year.
+    # JGCRI/gcam-core 11e128fb7ce3e14e9c4daf3903ba73123046a7aa,
+    # input/gcamdata/R/zemissions_L152.MACC.R:89,105-117 specifies 2024 USD.
+    # The EPA annex itself does not state this base year; that provenance limit
+    # remains documented separately from the verified official model convention.
     EPA_DOLLAR_YEAR <- 2024
 
     # baseline data
     EPA_baseline_master %>%
       bind_rows(EPA_baseline_master2) %>%
-      left_join_error_no_match(EPA_country_map %>% select(-iso) %>% rename(country = EPA_country), by = "country") %>%
+      left_join_error_no_match(EPA_country_map %>% select(country = EPA_country, iso), by = "country") %>%
+      left_join_error_no_match(EPA_ISO_map %>% select(iso, GCAM_region_ID), by = "iso") %>%
       left_join(EPA_MACC_mapping %>% select(-sector), by = c("source")) %>%
       filter(!is.na(Process)) %>%
       rename(Sector = sector) %>%
@@ -102,20 +112,19 @@ module_emissions_L152.MACC <- function(command, ...) {
       EPA_MACC_baselines_MtCO2e
 
     # mac data
-    # Convert from 2024$/tCO2e to 1990$/tC
+    # Convert from the official GCAM 2024 USD/tCO2e convention to 1990 USD/tC.
 
     EPA_MACC_Ag %>%
       bind_rows(EPA_MACC_Lan_1,EPA_MACC_Lan_2,EPA_MACC_Lan_3,EPA_MACC_Lan_4,
                EPA_MACC_Lan_5,EPA_MACC_Lan_6,EPA_MACC_Lan_7,EPA_MACC_Lan_8,
-               EPA_MACC_Lan_9,EPA_MACC_En,EPA_MACC_Ind %>%
-              filter(!country_code %in% c("TUV","NRU")),EPA_MACC_WWR) %>%
+               EPA_MACC_Lan_9,EPA_MACC_En,EPA_MACC_Ind,EPA_MACC_WWR) %>%
       left_join_error_no_match(EPA_ISO_map %>% mutate(iso = toupper(iso)), by = c("country_code" = "iso")) %>%
       left_join_error_no_match(EPA_MACC_control_mapping, by = c("sector", "source")) %>%
-      rename(cost_2024USD_tCO2e = p, reduction_MtCO2e = q_total) %>%
-      select(GCAM_region_ID, Sector, Process, year, cost_2024USD_tCO2e, reduction_MtCO2e) %>%
-      mutate(cost_2024USD_tCO2e = as.numeric(cost_2024USD_tCO2e),
-             cost_1990USD_tCe = round(cost_2024USD_tCO2e * emissions.CONV_C_CO2 * gdp_deflator(1990, base_year = EPA_DOLLAR_YEAR), 0)) %>%
-      select(-cost_2024USD_tCO2e) ->
+      rename(cost_EPAUSD_tCO2e = p, reduction_MtCO2e = q_total) %>%
+      select(GCAM_region_ID, Sector, Process, year, cost_EPAUSD_tCO2e, reduction_MtCO2e) %>%
+      mutate(cost_EPAUSD_tCO2e = as.numeric(cost_EPAUSD_tCO2e),
+             cost_1990USD_tCe = round(cost_EPAUSD_tCO2e * emissions.CONV_C_CO2 * gdp_deflator(1990, base_year = EPA_DOLLAR_YEAR), 0)) %>%
+      select(-cost_EPAUSD_tCO2e) ->
       L152.EPA_MACC_MtCO2e_ungrouped
 
     # For in abatement and baseline data:

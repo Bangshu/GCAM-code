@@ -285,7 +285,9 @@ module_aglu_L100.regional_ag_an_for_prices <- function(command, ...) {
       filter(year == max(MODEL_BASE_YEARS),
              GCAM_commodity%in% aglu.TRADED_CROPS) %>%
       inner_join(L100.FAO_ag_an_ProducerPrice_R_C_Y, by = c("GCAM_region_ID", "GCAM_commodity")) %>%
-      mutate(Exp_wtd_price = GrossExp_Mt * value) %>%
+      # A zero export has zero weight even when its domestic price is missing.
+      # Keep missing prices on positive exports visible; do not silently drop them.
+      mutate(Exp_wtd_price = if_else(GrossExp_Mt == 0, 0, GrossExp_Mt * value)) %>%
       group_by(GCAM_commodity) %>%
       summarize(GrossExp_Mt = sum(GrossExp_Mt),
                 Exp_wtd_price = sum(Exp_wtd_price)) %>%
@@ -315,11 +317,14 @@ module_aglu_L100.regional_ag_an_for_prices <- function(command, ...) {
       # This prevents artificially inflating domestic prices when storage dominates supply.
       mutate(
         # Calculate storage-adjusted price: weighted average of production and storage costs
-        Price_StorageAdjusted = (value * Prod_Mt + tradedP * (ArmingtonDomestic - Prod_Mt)) / ArmingtonDomestic,
+        # Missing domestic prices cannot add a cost when domestic production is zero.
+        Price_StorageAdjusted = (if_else(Prod_Mt == 0, 0, value * Prod_Mt) +
+                                  tradedP * (ArmingtonDomestic - Prod_Mt)) / ArmingtonDomestic,
         # Safeguard: use original price if adjustment is invalid
         Price_StorageAdjusted = if_else(ArmingtonDomestic == 0 |Price_StorageAdjusted < 0, value, Price_StorageAdjusted),
         # Apply adjustment only to high storage-import dependent regions
-        value = if_else(ProdDomRatio < 0.5 & ProdImpRatio < 0.5 & !is.na(Prod_Mt), Price_StorageAdjusted, value)
+        value = if_else(!is.na(ProdDomRatio) & !is.na(ProdImpRatio) & !is.na(Prod_Mt) &
+                          ProdDomRatio < 0.5 & ProdImpRatio < 0.5, Price_StorageAdjusted, value)
       ) %>%
       select(GCAM_region_ID, region, GCAM_commodity, value, unit) ->
       L100.FAO_ag_an_ProducerPrice_R_C_Y
@@ -514,7 +519,7 @@ module_aglu_L100.regional_ag_an_for_prices <- function(command, ...) {
       L1321.expP_R_F_75USDm3
 
     L1321.For_Cost %>%
-      select(GCAM_region_ID,year,GCAM_commodity,ForCost) %>%
+      select(GCAM_region_ID,GCAM_commodity,ForCost) %>%
       add_title("Regional cost for GCAM forest secondary commoditties") %>%
       add_units("1975$/unit") %>%
       add_comments("Region-specific costs by GCAM commodity and region") %>%

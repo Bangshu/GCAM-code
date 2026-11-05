@@ -220,6 +220,9 @@ module_aglu_L123.LC_R_MgdPastFor_Yh_GLU <- function(command, ...) {
       repeat_add_columns(tibble(GCAM_commodity = as.character(aglu.FOREST_SUPPLY_SECTOR))) %>%
       # Match in regional wood production
       left_join_error_no_match(L110.For_ALL_bm3_R_Y, by = c("GCAM_region_ID",  "year","GCAM_commodity")) %>%
+      # A zero-area region with zero wood production has no production to
+      # distribute. Do not turn missing or positive production into zero.
+      mutate(frac = if_else(total == 0 & Prod_bm3 == 0, 0, frac)) %>%
       # Calculate logging production as the regional total times the GLU-wise forest biomass production fractions
       mutate(value = Prod_bm3 * frac,
              value=round(value, aglu.DIGITS_CALOUTPUT_FOR)) %>%

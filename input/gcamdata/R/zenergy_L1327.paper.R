@@ -217,7 +217,8 @@ module_energy_L1327.paper <- function(command, ...) {
              coefficient = woodpulp_tons / biomass_EJ,
       ## Manual adjustment for Africa_Northern - fix extremely high coefficient by setting biomass to zero (will be replaced with default value)
              biomass_EJ = if_else(GCAM_region_ID == 3, 0, biomass_EJ),
-      biomass_EJ = if_else(coefficient>100, 0, biomass_EJ),
+      # A 0/0 coefficient must not turn an already known zero energy input into NA.
+      biomass_EJ = if_else(!is.na(coefficient) & coefficient > 100, 0, biomass_EJ),
              coefficient = woodpulp_tons / biomass_EJ)
 
     # Where reported biomass is 0, replace Inf coefficient with global median,

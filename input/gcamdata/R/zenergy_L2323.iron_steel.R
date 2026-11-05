@@ -170,13 +170,19 @@ module_energy_L2323.iron_steel <- function(command, ...) {
       #multiply total OPEX, labor, and raw materials costs with capital cost fraction from IEA
       mutate(value=value+(value*capital_cost_frac))%>%
       left_join(A323.ccs_adders,by=c("subsector","supplysector"))%>%
-      mutate(value=((value/CONV_T_KG)+ccs_cost_adder)*gdp_deflator(1975,base_year=STEEL_BY))%>%
+      mutate(value=((value/CONV_T_KG)+ccs_cost_adder)*gdp_deflator(1975,base_year=year))%>%
       select(supplysector,subsector,region,year,stub.technology,minicam.non.energy.input,value)
 
     #complete subsector and technology nesting across model years
     all_steel_production_costs %>%
       rename(input.cost=value)%>%
-      complete(nesting(supplysector, subsector, region,stub.technology,input.cost, minicam.non.energy.input), year = c(MODEL_BASE_YEARS, MODEL_FUTURE_YEARS))%>%
+      # Cost is a year-specific value, not part of the technology key.
+      # Retain observed model-year costs; interpolate gaps and hold endpoints
+      # outside the available years rather than copying every cost to every year.
+      complete(nesting(supplysector, subsector, region,stub.technology, minicam.non.energy.input), year = c(year, MODEL_BASE_YEARS, MODEL_FUTURE_YEARS))%>%
+      group_by(supplysector, subsector, region, stub.technology, minicam.non.energy.input) %>%
+      arrange(year, .by_group = TRUE) %>%
+      mutate(input.cost = approx_fun(year, input.cost, rule = 2)) %>%
       select(region,supplysector, subsector, stub.technology,year,minicam.non.energy.input, input.cost) %>%
       mutate(input.cost = round(input.cost, energy.DIGITS_COST)) %>%
       ungroup() %>%

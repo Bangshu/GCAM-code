@@ -11,7 +11,7 @@
 #' the generated outputs: \code{L102.ceds_nonco2_tg_R_S_F}, \code{L102.ceds_GFED_nonco2_tg_C_S_F}, \code{L102.ceds_int_shipping_nonco2_tg_S_F}.
 #' @details Calculates emissions using CEDS and CMIP data.
 #' @importFrom assertthat assert_that
-#' @importFrom dplyr filter mutate select
+#' @importFrom dplyr arrange filter group_by mutate select summarise
 #' @importFrom tidyr gather spread
 #' @importFrom data.table frollmean
 #' @author CWR May 2019, KBN June 2020
@@ -41,7 +41,7 @@ module_emissions_L102.nonco2_ceds_R_S_Y <- function(command, ...) {
 
       # Silence package checks
       iso <- em <- CEDS_sector <- fuel <- unit <- year <- UCD_category <- value <- GCAM_region_ID <-
-        emissions <- sector <- Non.CO2 <- CEDS_agg_sector <- CEDS_agg_fuel <- share_in_global_ship <- NULL
+        emissions <- sector <- Non.CO2 <- CEDS_agg_sector <- CEDS_agg_fuel <- share_in_global_ship <- last_year <- NULL
 
 
       all_data <- list(...)[[1]]
@@ -144,12 +144,31 @@ module_emissions_L102.nonco2_ceds_R_S_Y <- function(command, ...) {
           filter(em != "CO2") %>%
           select(iso, CEDS_sector, fuel, unit, year, emissions, em) %>%
           rename(units = unit, Non.CO2 = em, sector = CEDS_sector) %>%
+          # BORF and TEMF both map to forest. A 30-year mean needs one annual
+          # total per mapped sector, not 30 interleaved fire-type records.
+          group_by(iso, sector, fuel, units, Non.CO2, year) %>%
+          summarise(emissions = sum(emissions), .groups = "drop") %>%
           group_by(iso, sector, fuel, units, Non.CO2) %>%
+          arrange(year, .by_group = TRUE) %>%
           mutate(emissions=frollmean(emissions,emissions.UNMGD_LAND_AVG_YRS)) %>%
           ungroup() %>%
           na.omit() %>%
           filter(year %in% emissions.CEDS_YEARS)->L102.CMIP_unmgd_emissions
 
+        # CEDS and GFED have independent source-year coverage. PAC decision
+        # 2026-10-25 retains the official fire inventory through 2015; later
+        # observations are not fabricated. Keep downstream model rules unchanged.
+        L102.CMIP_unmgd_emissions %>%
+          group_by(iso, sector, fuel, units, Non.CO2) %>%
+          summarise(last_year = max(year), .groups = "drop") %>%
+          filter(last_year < max(HISTORICAL_YEARS)) -> CMIP_missing_years
+        if(nrow(CMIP_missing_years)) {
+          if(any(CMIP_missing_years$last_year < min(2015L, max(HISTORICAL_YEARS)))) {
+            stop("GFED-CMIP6_LUC_emissions.csv does not reach the accepted official source end year (2015) for all existing country/gas/fire-sector series.")
+          }
+          warning(paste0("PAC decision 2026-10-25: retain official GFED fire observations through 2015 for ",
+                         nrow(CMIP_missing_years), " country/gas/fire-sector series. No later fire observations are added; downstream model rules are unchanged."))
+        }
 
         # Compute CEDS emissions by region and sector
         bind_rows(CEDS_CH4 ,CEDS_BC, CEDS_NMVOC, CEDS_NH3, CEDS_OC, CEDS_NOx, CEDS_SO2, CEDS_CO, CEDS_N2O, CEDS_CO2) -> CEDS_data

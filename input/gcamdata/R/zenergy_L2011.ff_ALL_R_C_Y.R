@@ -20,8 +20,6 @@ module_energy_L2011.ff_ALL_R_C_Y <- function(command, ...) {
   if(command == driver.DECLARE_INPUTS) {
     return(c(FILE = "common/GCAM_region_names",
              "L1012.en_bal_EJ_R_Si_Fi_Yh",
-             "L121.in_EJ_R_TPES_crude_Yh",
-             "L121.in_EJ_R_TPES_unoil_Yh",
              "L111.Prod_EJ_R_F_Yh",
              "L1011.ff_GrossTrade_EJ_R_C_Y"))
   } else if(command == driver.DECLARE_OUTPUTS) {
@@ -39,8 +37,6 @@ module_energy_L2011.ff_ALL_R_C_Y <- function(command, ...) {
     # Load required inputs
     GCAM_region_names <- get_data(all_data, "common/GCAM_region_names")
     L1012.en_bal_EJ_R_Si_Fi_Yh <- get_data(all_data, "L1012.en_bal_EJ_R_Si_Fi_Yh")
-    L121.in_EJ_R_TPES_crude_Yh <- get_data(all_data, "L121.in_EJ_R_TPES_crude_Yh")
-    L121.in_EJ_R_TPES_unoil_Yh <- get_data(all_data, "L121.in_EJ_R_TPES_unoil_Yh")
     L111.Prod_EJ_R_F_Yh <- get_data(all_data, "L111.Prod_EJ_R_F_Yh")
     L1011.ff_GrossTrade_EJ_R_C_Y <- get_data(all_data, "L1011.ff_GrossTrade_EJ_R_C_Y")
 
@@ -50,17 +46,17 @@ module_energy_L2011.ff_ALL_R_C_Y <- function(command, ...) {
 
     #This treats natural gas and LNG as one fuel type, but that should be changed in the future.
     # Total production is taken from L111.Prod_EJ_R_F_Yh and total consumption is calculated from
-    # L1012.en_bal_EJ_R_Si_Fi_Yh and L121.in_EJ_R_TPES_crude_Yh/unoil.
+    # L1012.en_bal_EJ_R_Si_Fi_Yh. L121 defines crude = liquids - unconventional oil,
+    # so crude + unconventional oil equals this same liquids TES. Read that total
+    # directly to avoid combining current regional balances with legacy prebuilt splits.
 
     # Part 1: Calculate total consumption of fuels by region
-    bind_rows(L1012.en_bal_EJ_R_Si_Fi_Yh,
-              L121.in_EJ_R_TPES_crude_Yh,
-              L121.in_EJ_R_TPES_unoil_Yh) %>%
+    L1012.en_bal_EJ_R_Si_Fi_Yh %>%
       filter(sector == energy.TPES_FLOW,
              year %in% HISTORICAL_YEARS,
-             fuel %in% c("gas", "coal", "crude oil", "unconventional oil")) %>%
-      #Unconventional oil is crude oil
-      mutate(fuel = if_else(fuel == "gas", "natural gas", if_else(fuel == "unconventional oil","crude oil",fuel))) %>%
+             fuel %in% c("gas", "coal", "refined liquids")) %>%
+      # The oil trade commodity includes conventional and unconventional oil.
+      mutate(fuel = if_else(fuel == "gas", "natural gas", if_else(fuel == "refined liquids", "crude oil", fuel))) %>%
       group_by(GCAM_region_ID, fuel, year) %>%
       summarise(value = sum(value)) %>%
       ungroup() %>%
@@ -186,8 +182,6 @@ module_energy_L2011.ff_ALL_R_C_Y <- function(command, ...) {
       add_comments("Calculate fossil fuel net trade by GCAM region, commodity and year") %>%
       add_precursors("common/GCAM_region_names",
                      "L1012.en_bal_EJ_R_Si_Fi_Yh",
-                     "L121.in_EJ_R_TPES_crude_Yh",
-                     "L121.in_EJ_R_TPES_unoil_Yh",
                      "L111.Prod_EJ_R_F_Yh") ->
       L2011.ff_ALL_EJ_R_C_Y
 
@@ -197,8 +191,6 @@ module_energy_L2011.ff_ALL_R_C_Y <- function(command, ...) {
       add_comments("Adjust Comtrade fossil fuel net trade to match GCAM's calibrated values by GCAM region, commodity and year") %>%
       add_precursors("common/GCAM_region_names",
                      "L1012.en_bal_EJ_R_Si_Fi_Yh",
-                     "L121.in_EJ_R_TPES_crude_Yh",
-                     "L121.in_EJ_R_TPES_unoil_Yh",
                      "L111.Prod_EJ_R_F_Yh",
                      "L1011.ff_GrossTrade_EJ_R_C_Y") ->
       L2011.ff_GrossTrade_EJ_R_C_Y

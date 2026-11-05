@@ -151,7 +151,7 @@ module_emissions_L2112.ag_nonco2_IRR_MGMT <- function(command, ...) {
 
     L2112.AWB_BCOC_EmissCoeff %>%
       add_title("Agricultural Waste Burning BC/OC Emissions Coefficients by management") %>%
-      add_units("kt/Mt") %>%
+      add_units("Tg/Mt") %>%
       add_comments("L2111.AWB_BCOC_EmissCoeff repeated high and low management") %>%
       add_legacy_name("L2112.AWB_BCOC_EmissCoeff") %>%
       add_precursors("L2111.AWB_BCOC_EmissCoeff") ->

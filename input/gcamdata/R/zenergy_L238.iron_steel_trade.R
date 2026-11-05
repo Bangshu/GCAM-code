@@ -20,6 +20,7 @@
 module_energy_L238.iron_steel_trade <- function(command, ...) {
   if(command == driver.DECLARE_INPUTS) {
     return(c(FILE = "common/GCAM_region_names",
+             FILE = "socioeconomics/region_proxy_47regions",
              FILE = "energy/A_irnstl_RegionalSector",
              FILE = "energy/A_irnstl_RegionalSubsector",
              FILE = "energy/A_irnstl_RegionalTechnology",
@@ -52,6 +53,12 @@ module_energy_L238.iron_steel_trade <- function(command, ...) {
 
     # Load required inputs
     GCAM_region_names <- get_data(all_data, "common/GCAM_region_names")
+    structural_proxy <- get_data(all_data, "socioeconomics/region_proxy_47regions", strip_attributes = TRUE)
+    # Inherit the original parent rule by identity, not by the target's new ID.
+    domestic_sw_regions <- structural_proxy$target_region[
+      structural_proxy$source_region %in% energy.IRON_STEEL.DOMESTIC_SW
+    ]
+    traded_sw_regions <- paste(domestic_sw_regions, "traded iron and steel")
     A_irnstl_RegionalSector <- get_data(all_data, "energy/A_irnstl_RegionalSector", strip_attributes = TRUE)
     A_irnstl_RegionalSubsector <- get_data(all_data, "energy/A_irnstl_RegionalSubsector", strip_attributes = TRUE)
     A_irnstl_RegionalTechnology <- get_data(all_data, "energy/A_irnstl_RegionalTechnology", strip_attributes = TRUE)
@@ -82,8 +89,8 @@ module_energy_L238.iron_steel_trade <- function(command, ...) {
 
 
     # Change traded iron and steel interpolation rule and to.value in countries listed in energy.IRON_STEEL.DOMESTIC_SW
-    L238.SubsectorAll_tra$interpolation.function[which(L238.SubsectorAll_tra$subsector %in% energy.IRON_STEEL.TRADED_SW)] <- "s-curve"
-    L238.SubsectorAll_tra$to.year[which(L238.SubsectorAll_tra$subsector %in% energy.IRON_STEEL.TRADED_SW)] <- 2300
+    L238.SubsectorAll_tra$interpolation.function[which(L238.SubsectorAll_tra$subsector %in% traded_sw_regions)] <- "s-curve"
+    L238.SubsectorAll_tra$to.year[which(L238.SubsectorAll_tra$subsector %in% traded_sw_regions)] <- 2300
 
     # Base technology-level table for several tables to be written out")
     A_irnstl_TradedTechnology_R_Y <- repeat_add_columns(A_irnstl_TradedTechnology,
@@ -137,9 +144,9 @@ module_energy_L238.iron_steel_trade <- function(command, ...) {
                                                   GCAM_region_names)
 
     # Change iron and steel domestic supply interpolation rule and to.value in countries listed in energy.IRON_STEEL.DOMESTIC_SW
-    L238.SubsectorAll_reg$to.value[which(L238.SubsectorAll_reg$region %in% energy.IRON_STEEL.DOMESTIC_SW & L238.SubsectorAll_reg$subsector %in% c("domestic iron and steel"))] <- 1
-    L238.SubsectorAll_reg$interpolation.function[which(L238.SubsectorAll_reg$region %in% energy.IRON_STEEL.DOMESTIC_SW & L238.SubsectorAll_reg$subsector %in% c("domestic iron and steel"))] <- "s-curve"
-    L238.SubsectorAll_reg$to.year[which(L238.SubsectorAll_reg$region %in% energy.IRON_STEEL.DOMESTIC_SW & L238.SubsectorAll_reg$subsector %in% c("domestic iron and steel"))] <- 2105
+    L238.SubsectorAll_reg$to.value[which(L238.SubsectorAll_reg$region %in% domestic_sw_regions & L238.SubsectorAll_reg$subsector %in% c("domestic iron and steel"))] <- 1
+    L238.SubsectorAll_reg$interpolation.function[which(L238.SubsectorAll_reg$region %in% domestic_sw_regions & L238.SubsectorAll_reg$subsector %in% c("domestic iron and steel"))] <- "s-curve"
+    L238.SubsectorAll_reg$to.year[which(L238.SubsectorAll_reg$region %in% domestic_sw_regions & L238.SubsectorAll_reg$subsector %in% c("domestic iron and steel"))] <- 2105
 
     # Base technology-level table for several tables to be written out")
     A_irnstl_RegionalTechnology_R_Y <- repeat_add_columns(A_irnstl_RegionalTechnology,
@@ -221,7 +228,7 @@ module_energy_L238.iron_steel_trade <- function(command, ...) {
       add_units("None") %>%
       add_comments("Modeled for all GCAM regions") %>%
       add_precursors("common/GCAM_region_names",
-                     "energy/A_irnstl_TradedSubsector") ->
+                     "energy/A_irnstl_TradedSubsector", "socioeconomics/region_proxy_47regions") ->
       L238.SubsectorAll_tra
 
     L238.TechShrwt_tra %>%
@@ -267,7 +274,7 @@ module_energy_L238.iron_steel_trade <- function(command, ...) {
       add_units("None") %>%
       add_comments("We remove any regions for which agriculture and land use are not modeled.") %>%
       add_precursors("common/GCAM_region_names",
-                     "energy/A_irnstl_RegionalSubsector") ->
+                     "energy/A_irnstl_RegionalSubsector", "socioeconomics/region_proxy_47regions") ->
       L238.SubsectorAll_reg
 
     L238.TechShrwt_reg %>%

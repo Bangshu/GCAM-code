@@ -131,7 +131,7 @@ module_emissions_L2111.ag_nonco2_IRR <- function(command, ...) {
       L2111.AGRBio
     L2111.AWB_BCOC_EmissCoeff %>%
       add_title("Agricultural Waste Burning BC/OC Emissions Coefficients") %>%
-      add_units("kt/Mt") %>%
+      add_units("Tg/Mt") %>%
       add_comments("L211.AWB_BCOC_EmissCoeff repeated by IRR and RFD technologies") %>%
       add_legacy_name("L2111.AWB_BCOC_EmissCoeff") %>%
       add_precursors("L211.AWB_BCOC_EmissCoeff") ->

@@ -300,7 +300,7 @@ module_energy_L1328.food_processing <- function(command, ...) {
                                  select(GCAM_region_ID, year, GDP_mil90USD = value),
                                by = c("GCAM_region_ID", "year")) %>%
       # add the regional intercepts of the model
-      left_join_error_no_match(A328.energy_infill_model_intercepts_R %>%
+      left_join(A328.energy_infill_model_intercepts_R %>%
                   select(GCAM_region_ID, intercept),
                 by = c("GCAM_region_ID")) %>%
       # for any region not explicitly specified in the intercepts input file, use default intercept value

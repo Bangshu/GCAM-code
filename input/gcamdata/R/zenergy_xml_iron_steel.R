@@ -12,7 +12,8 @@
 #' original data system was \code{batch_iron_steel_xml.R} (energy XML).
 module_energy_iron_steel_xml <- function(command, ...) {
   if(command == driver.DECLARE_INPUTS) {
-    return(c("L2323.Supplysector_iron_steel",
+    return(c(FILE = "common/GCAM_region_names",
+             "L2323.Supplysector_iron_steel",
              "L2323.FinalEnergyKeyword_iron_steel",
              "L2323.SubsectorLogit_iron_steel",
              "L2323.SubsectorShrwtFllt_iron_steel",
@@ -38,6 +39,7 @@ module_energy_iron_steel_xml <- function(command, ...) {
     all_data <- list(...)[[1]]
 
     # Load required inputs
+    GCAM_region_names <- get_data(all_data, "common/GCAM_region_names")
     L2323.Supplysector_iron_steel <- get_data(all_data, "L2323.Supplysector_iron_steel")
     L2323.FinalEnergyKeyword_iron_steel <- get_data(all_data, "L2323.FinalEnergyKeyword_iron_steel")
     L2323.SubsectorLogit_iron_steel <- get_data(all_data, "L2323.SubsectorLogit_iron_steel")
@@ -57,6 +59,14 @@ module_energy_iron_steel_xml <- function(command, ...) {
     L2323.PerCapitaBased_iron_steel <- get_data(all_data, "L2323.PerCapitaBased_iron_steel")
     L2323.BaseService_iron_steel <- get_data(all_data, "L2323.BaseService_iron_steel")
     L2323.PriceElasticity_iron_steel <- get_data(all_data, "L2323.PriceElasticity_iron_steel")
+
+    # Check the current region contract before serializing upstream steel demand.
+    invalid_regions <- setdiff(unique(L2323.BaseService_iron_steel$region), GCAM_region_names$region)
+    if(length(invalid_regions)) {
+      stop(paste0("iron_steel.xml BaseService contains regions outside common/GCAM_region_names.csv: ",
+                  paste(invalid_regions, collapse = ", "),
+                  ". Correct the upstream WSA region mapping and aggregation boundary; no region is dropped or renamed automatically."))
+    }
 
     # ===================================================
 
@@ -82,7 +92,7 @@ module_energy_iron_steel_xml <- function(command, ...) {
       add_xml_data(L2323.PerCapitaBased_iron_steel, "PerCapitaBased") %>%
       add_xml_data(L2323.BaseService_iron_steel, "BaseService") %>%
       add_xml_data(L2323.PriceElasticity_iron_steel, "PriceElasticity") %>%
-      add_precursors("L2323.Supplysector_iron_steel", "L2323.FinalEnergyKeyword_iron_steel", "L2323.SubsectorLogit_iron_steel",
+      add_precursors("common/GCAM_region_names", "L2323.Supplysector_iron_steel", "L2323.FinalEnergyKeyword_iron_steel", "L2323.SubsectorLogit_iron_steel",
                      "L2323.SubsectorShrwtFllt_iron_steel",
                      "L2323.SubsectorInterp_iron_steel",
                      "L2323.StubTech_iron_steel",

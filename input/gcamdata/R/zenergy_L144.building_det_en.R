@@ -9,7 +9,7 @@
 #' @return Depends on \code{command}: either a vector of required inputs,
 #' a vector of output names, or (if \code{command} is "MAKE") all
 #' the generated outputs: \code{L144.end_use_eff}, \code{L144.shell_eff_R_Y}, \code{L144.in_EJ_R_bld_serv_F_Yh}, \code{L144.NEcost_75USDGJ},
-#'  \code{L144.internal_gains}, \code{L144.base_service_EJ_serv},\code{L144.base_service_EJ_serv_fuel}, \code{L144.prices_bld}.
+#'  \code{L144.internal_gains}, \code{L144.base_service_EJ_serv},\code{L144.base_service_EJ_serv_fuel}.
 #'  The corresponding file in the original data system was \code{LA144.building_det_en.R} (energy level1).
 #' @details Calculates building energy consumption, non-energy costs, energy output by service, internal gains, and end-use technology and shell efficiency
 #' @importFrom assertthat assert_that
@@ -31,8 +31,7 @@ module_energy_L144.building_det_en <- function(command, ...) {
              "L101.in_EJ_ctry_bld_Fi_Yh",
              "L142.in_EJ_R_bld_F_Yh",
              "L143.HDDCDD_scen_RG3_Y",
-             "L143.HDDCDD_scen_ctry_Y",
-             FILE = "energy/A44.CalPrice_bld"))
+             "L143.HDDCDD_scen_ctry_Y"))
   } else if(command == driver.DECLARE_OUTPUTS) {
     return(c("L144.end_use_eff",
              "L144.shell_eff_R_Y",
@@ -40,8 +39,7 @@ module_energy_L144.building_det_en <- function(command, ...) {
              "L144.NEcost_75USDGJ",
              "L144.internal_gains",
              "L144.base_service_EJ_serv",
-             "L144.base_service_EJ_serv_fuel",
-             "L144.prices_bld"))
+             "L144.base_service_EJ_serv_fuel"))
   } else if(command == driver.MAKE) {
 
     all_data <- list(...)[[1]]
@@ -57,7 +55,6 @@ module_energy_L144.building_det_en <- function(command, ...) {
     A44.shell_eff_mult_RG3 <- get_data(all_data, "energy/A44.shell_eff_mult_RG3")
     A44.tech_eff_mult_RG3 <- get_data(all_data, "energy/A44.tech_eff_mult_RG3")
     A44.USA_TechChange <- get_data(all_data, "energy/A44.USA_TechChange")
-    A44.Calprice_bld <- get_data(all_data, "energy/A44.CalPrice_bld")
     L101.in_EJ_ctry_bld_Fi_Yh <- get_data(all_data, "L101.in_EJ_ctry_bld_Fi_Yh")
     L142.in_EJ_R_bld_F_Yh <- get_data(all_data, "L142.in_EJ_R_bld_F_Yh")
     L143.HDDCDD_scen_RG3_Y <- get_data(all_data, "L143.HDDCDD_scen_RG3_Y")
@@ -554,44 +551,6 @@ module_energy_L144.building_det_en <- function(command, ...) {
       select(GCAM_region_ID, region_GCAM3, supplysector, subsector, technology, year, value) ->
       L144.internal_gains # This is a final output table.
 
-    # A44.Calprice_bld has regional data. The next code block will error if regional definitions change
-    # Stop with a warning by checking regions against GCAM_region_names
-    if (!all(A44.Calprice_bld$region %in% GCAM_region_names$region)) {
-      stop("Some regions in A44.Calprice_bld.csv do not match GCAM_region_names. More details in the chunk after this message line.")
-
-      # copy prices data from brokenout_FROM region to brokenout_TO, run GCAM reference, update A44.Calprice_bld.csv
-      # place the following sample code block before this conditional
-      if (!"brokenout_TO" %in% A44.Calprice_bld$region) {
-        A44.Calprice_bld %>%
-          filter(region == "brokenout_FROM") %>%
-          mutate(region = "brokenout_TO") %>%
-          bind_rows(A44.Calprice_bld) -> A44.Calprice_bld
-      }
-    }
-
-    # 1G
-    # Create L144.prices_bld to calibrate satiation impedance (mu) at region level within the DS
-    L144.prices_bld <- A44.Calprice_bld %>%
-      left_join_error_no_match(GCAM_region_names, by="region") %>%
-      gather_years() %>%
-      # only residential will have cons.groups thus we expect NAs and set the fill
-      # flag accordingly
-      separate(market, c("market", "cons.groups"), sep = "_", fill = "right") %>%
-      group_by(region, GCAM_region_ID, market, year) %>%
-      # average out building energy service costs for consumer groups
-      summarise(value = mean(value)) %>%
-      # Add 1975 and fill prices using rule 2 (to copy terminal value)
-      complete(nesting(year = MODEL_BASE_YEARS)) %>%
-      mutate(value = if_else(is.na(value),approx_fun(year, value, rule = 2),value)) %>%
-      # Add all historical years and linearly extrapolate (rule 1)
-      complete(nesting(year = HISTORICAL_YEARS)) %>%
-      mutate(value = if_else(is.na(value),approx_fun(year, value, rule = 2),value)) %>%
-      ungroup() %>%
-      rename(price = value) %>%
-      # select historical years
-      filter(year <= max(MODEL_BASE_YEARS))
-
-
     # ===================================================
 
     L144.end_use_eff %>%
@@ -659,18 +618,63 @@ module_energy_L144.building_det_en <- function(command, ...) {
       L144.base_service_EJ_serv_fuel
 
 
-    L144.prices_bld %>%
+    return_data(L144.end_use_eff, L144.shell_eff_R_Y, L144.in_EJ_R_bld_serv_F_Yh, L144.NEcost_75USDGJ, L144.internal_gains,
+                L144.base_service_EJ_serv,L144.base_service_EJ_serv_fuel)
+  } else {
+    stop("Unknown command")
+  }
+}
+
+#' module_energy_L144.building_det_prices
+#'
+#' Prepare building service calibration prices independently of historical energy.
+#' @param command API command to execute
+#' @param ... other optional parameters, depending on command
+#' @return Declared inputs, output name, or the original L144.prices_bld table.
+#' @details Uses the existing price calculation without filling regional gaps.
+#' Keeping this in a separate chunk lets emissions use the measured energy inputs
+#' while building demand calibration still fails on incompatible source prices.
+module_energy_L144.building_det_prices <- function(command, ...) {
+  if(command == driver.DECLARE_INPUTS) {
+    return(c(FILE = "common/GCAM_region_names", FILE = "energy/A44.CalPrice_bld"))
+  } else if(command == driver.DECLARE_OUTPUTS) {
+    return(c("L144.prices_bld"))
+  } else if(command == driver.MAKE) {
+    all_data <- list(...)[[1]]
+    GCAM_region_names <- get_data(all_data, "common/GCAM_region_names")
+    A44.Calprice_bld <- get_data(all_data, "energy/A44.CalPrice_bld")
+    region <- GCAM_region_ID <- market <- year <- value <- NULL
+
+    extra_regions <- setdiff(A44.Calprice_bld$region, GCAM_region_names$region)
+    missing_regions <- setdiff(GCAM_region_names$region, A44.Calprice_bld$region)
+    if(length(extra_regions) || length(missing_regions)) {
+      stop("A44.CalPrice_bld.csv regional calibration prices are incompatible. ",
+           "Missing active regions: ", paste(missing_regions, collapse = ", "),
+           "; obsolete source regions: ", paste(extra_regions, collapse = ", "),
+           ". Provide calibrated prices; no automatic parent-price substitution is applied.")
+    }
+
+    A44.Calprice_bld %>%
+      left_join_error_no_match(GCAM_region_names, by="region") %>%
+      gather_years() %>%
+      separate(market, c("market", "cons.groups"), sep = "_", fill = "right") %>%
+      group_by(region, GCAM_region_ID, market, year) %>%
+      summarise(value = mean(value)) %>%
+      complete(nesting(year = MODEL_BASE_YEARS)) %>%
+      mutate(value = if_else(is.na(value),approx_fun(year, value, rule = 2),value)) %>%
+      complete(nesting(year = HISTORICAL_YEARS)) %>%
+      mutate(value = if_else(is.na(value),approx_fun(year, value, rule = 2),value)) %>%
+      ungroup() %>%
+      rename(price = value) %>%
+      filter(year <= max(MODEL_BASE_YEARS)) %>%
       add_title("Residential average service prices by GCAM region ID / historical year") %>%
       add_units("$1975/unit") %>%
       add_comments("Weighted by fuel prices") %>%
       add_legacy_name("L144.prices_bld") %>%
-      add_precursors("energy/A44.CalPrice_bld", "energy/calibrated_techs_bld_det",
-                     "L101.in_EJ_ctry_bld_Fi_Yh", "common/GCAM_region_names") ->
+      add_precursors("energy/A44.CalPrice_bld", "common/GCAM_region_names") ->
       L144.prices_bld
 
-
-    return_data(L144.end_use_eff, L144.shell_eff_R_Y, L144.in_EJ_R_bld_serv_F_Yh, L144.NEcost_75USDGJ, L144.internal_gains,
-                L144.base_service_EJ_serv,L144.base_service_EJ_serv_fuel,L144.prices_bld)
+    return_data(L144.prices_bld)
   } else {
     stop("Unknown command")
   }

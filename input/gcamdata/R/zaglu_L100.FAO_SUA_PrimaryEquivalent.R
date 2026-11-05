@@ -28,6 +28,11 @@ module_aglu_L100.FAO_SUA_PrimaryEquivalent <- function(command, ...) {
     c(FILE = "aglu/AGLU_ctry",
       FILE = "common/iso_GCAM_regID",
       FILE = "common/GCAM_region_names",
+      OPTIONAL_FILE = "aglu/FAO/GCAM_AgLU_SUA_APE",
+      OPTIONAL_FILE = "aglu/FAO/FAO_AgProd_Kt_All",
+      OPTIONAL_FILE = "aglu/FAO/FAO_AgArea_Kha_All",
+      OPTIONAL_FILE = "aglu/FAO/FAO_Food_Macronutrient_All",
+      OPTIONAL_FILE = "aglu/FAO/FAO_Food_MacronutrientRate_MaxValue",
       FILE = "aglu/FAO/GCAMFAOSTAT_SUA",
       FILE = "aglu/FAO/GCAMFAOSTAT_BiTrade",
       FILE = "aglu/FAO/Mapping_SUA_PrimaryEquivalent",
@@ -68,6 +73,67 @@ module_aglu_L100.FAO_SUA_PrimaryEquivalent <- function(command, ...) {
     # Load required inputs ----
 
     get_data_list(all_data, MODULE_INPUTS, strip_attributes = TRUE)
+
+    # The Pacific agriculture team supplies these five validated L100
+    # outputs directly because the legacy FBSH source lacks Singapore and PNG.
+    if(nrow(GCAM_region_names) > 32) {
+      if(any(vapply(list(GCAM_AgLU_SUA_APE, FAO_AgProd_Kt_All,
+                         FAO_AgArea_Kha_All, FAO_Food_Macronutrient_All,
+                         FAO_Food_MacronutrientRate_MaxValue), is.null, logical(1)))) {
+        stop("Pacific agriculture requires all five supplied FAO input tables")
+      }
+      check_pac_country_mapping <- function(data, label) {
+        data_map <- data %>% distinct(iso, supplied_region_ID = GCAM_region_ID)
+        expected_map <- iso_GCAM_regID %>%
+          select(iso, expected_region_ID = GCAM_region_ID)
+        bad_mapping <- data_map %>%
+          left_join(expected_map, by = "iso") %>%
+          filter(is.na(expected_region_ID) | supplied_region_ID != expected_region_ID)
+        if(!setequal(data$GCAM_region_ID, GCAM_region_names$GCAM_region_ID) || nrow(bad_mapping) > 0) {
+          stop("Pacific L100 input failed active region mapping validation: ", label)
+        }
+      }
+
+      if(!setequal(GCAM_AgLU_SUA_APE$region, GCAM_region_names$region)) {
+        stop("Pacific L100 input failed active region-name validation")
+      }
+      check_pac_country_mapping(FAO_AgProd_Kt_All, "FAO_AgProd_Kt_All")
+      check_pac_country_mapping(FAO_AgArea_Kha_All, "FAO_AgArea_Kha_All")
+      check_pac_country_mapping(FAO_Food_Macronutrient_All, "FAO_Food_Macronutrient_All")
+
+      GCAM_AgLU_SUA_APE %>%
+        add_title("GCAM_AgLU_SUA_APE") %>%
+        add_units("kton") %>%
+        add_comments("GCAM-Pacific precomputed supply utilization balance aligned to active regional names; see source-table boundary limitations.") %>%
+        add_precursors("aglu/FAO/GCAM_AgLU_SUA_APE", "common/iso_GCAM_regID", "common/GCAM_region_names") ->
+        GCAM_AgLU_SUA_APE
+      FAO_AgProd_Kt_All %>%
+        add_title("FAO_AgProd_Kt_All") %>%
+        add_units("1000 tonnes") %>%
+        add_comments("Validated GCAM-Pacific precomputed production data with active ISO mapping") %>%
+        add_precursors("aglu/FAO/FAO_AgProd_Kt_All", "common/iso_GCAM_regID", "common/GCAM_region_names") ->
+        FAO_AgProd_Kt_All
+      FAO_AgArea_Kha_All %>%
+        add_title("FAO_AgArea_Kha_All") %>%
+        add_units("1000 ha") %>%
+        add_comments("Validated GCAM-Pacific precomputed harvested-area data with active ISO mapping") %>%
+        add_precursors("aglu/FAO/FAO_AgArea_Kha_All", "common/iso_GCAM_regID", "common/GCAM_region_names") ->
+        FAO_AgArea_Kha_All
+      FAO_Food_Macronutrient_All %>%
+        add_title("FAO_Food_Macronutrient_All") %>%
+        add_units("MKcal, MtFat, MtProtein") %>%
+        add_comments("Validated GCAM-Pacific precomputed food macronutrient data with active ISO mapping") %>%
+        add_precursors("aglu/FAO/FAO_Food_Macronutrient_All", "common/iso_GCAM_regID", "common/GCAM_region_names") ->
+        FAO_Food_Macronutrient_All
+      FAO_Food_MacronutrientRate_MaxValue %>%
+        add_title("FAO_Food_MacronutrientRate_MaxValue") %>%
+        add_units("cal per g, fat perc. , protein perc.") %>%
+        add_comments("Validated GCAM-Pacific precomputed macronutrient conversion bounds") %>%
+        add_precursors("aglu/FAO/FAO_Food_MacronutrientRate_MaxValue", "common/iso_GCAM_regID", "common/GCAM_region_names") ->
+        FAO_Food_MacronutrientRate_MaxValue
+
+      return(return_data(MODULE_OUTPUTS))
+    }
 
     # Get Supply-utilization account (SUA) elements and use as factor
     All_Bal_element <- levels(GCAMFAOSTAT_SUA$element)

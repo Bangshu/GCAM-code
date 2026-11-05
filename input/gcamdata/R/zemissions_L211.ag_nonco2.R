@@ -197,7 +197,7 @@ module_emissions_L211.ag_nonco2 <- function(command, ...) {
       L211.AGRBio
     L211.AWB_BCOC_EmissCoeff %>%
       add_title("Emission factors for BC and OC emissions by region and agricultural technology") %>%
-      add_units("kt/Mt") %>%
+      add_units("Tg/Mt") %>%
       add_comments("Added ag technology and region to L123.bcoc_tgmt_R_awb_2000") %>%
       add_legacy_name("L211.AWB_BCOC_EmissCoeff") %>%
       add_precursors("common/GCAM_region_names", "water/basin_to_country_mapping",

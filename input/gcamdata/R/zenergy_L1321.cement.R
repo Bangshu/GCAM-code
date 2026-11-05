@@ -21,7 +21,7 @@
 module_energy_L1321.cement <- function(command, ...) {
   if(command == driver.DECLARE_INPUTS) {
     return(c(FILE = "common/iso_GCAM_regID",
-             FILE = "common/GCAM32_to_PAC",
+             FILE = "socioeconomics/region_proxy_47regions",
              FILE = "emissions/A_PrimaryFuelCCoef",
              FILE = "energy/mappings/cement_regions",
              FILE = "energy/mappings/Andrew_iso_correction",
@@ -57,7 +57,7 @@ module_energy_L1321.cement <- function(command, ...) {
 
     # Load required inputs
     iso_GCAM_regID <- get_data(all_data, "common/iso_GCAM_regID", strip_attributes = TRUE)
-    GCAM32_to_PAC <- get_data(all_data, "common/GCAM32_to_PAC", strip_attributes = TRUE)
+    region_proxy_47regions <- get_data(all_data, "socioeconomics/region_proxy_47regions", strip_attributes = TRUE)
     A_PrimaryFuelCCoef <- get_data(all_data, "emissions/A_PrimaryFuelCCoef", strip_attributes = TRUE)
     cement_regions <- get_data(all_data, "energy/mappings/cement_regions", strip_attributes = TRUE)
     Andrew_iso_correction <- get_data(all_data, "energy/mappings/Andrew_iso_correction", strip_attributes = TRUE)
@@ -378,13 +378,16 @@ module_energy_L1321.cement <- function(command, ...) {
       ungroup() ->
       L1321.IO_R_elec_Yh
 
-    # Reconstruct each old GCAM32 parent electricity IO curve from its active Pacific children.
+    # Form an electricity IO reference group using the structural-parameter proxy.
+    # This is not a reconstruction of historical territorial parent totals: new
+    # Australia_NZ crosses two historical parents but must enter one proxy group.
     # It is used only when a new child region has cement production but no country-level
     # historical electricity balance from which to derive its own coefficient.
-    GCAM32_to_PAC %>%
-      select(GCAM_region_ID, GCAM32_region_ID) %>%
+    region_proxy_47regions %>%
+      select(GCAM_region_ID = target_GCAM_region_ID, GCAM32_region_ID = source_GCAM_region_ID) %>%
       unique() ->
       L1321.GCAM32_parent
+    stopifnot(!anyDuplicated(L1321.GCAM32_parent$GCAM_region_ID))
 
     L1321.IO_R_elec_Yh_raw %>%
       left_join_error_no_match(L1321.GCAM32_parent, by = "GCAM_region_ID") %>%
@@ -682,7 +685,8 @@ module_energy_L1321.cement <- function(command, ...) {
       add_legacy_name("L1321.IO_GJkg_R_cement_F_Yh") %>%
       add_precursors("emissions/A_PrimaryFuelCCoef", "L102.CO2_Mt_R_F_Yh", "L123.in_EJ_R_elec_F_Yh", "L123.out_EJ_R_elec_F_Yh",
                      "energy/IEA_cement_elec_kwht","energy/IEA_cement_elec_kwht_update",
-                     "energy/IEA_cement_thermal_energy_GJt_clinker_global_trend", "energy/IEA_cement_TPE_GJt",  "common/iso_GCAM_regID") ->
+                     "energy/IEA_cement_thermal_energy_GJt_clinker_global_trend", "energy/IEA_cement_TPE_GJt",  "common/iso_GCAM_regID",
+                     "socioeconomics/region_proxy_47regions") ->
       L1321.IO_GJkg_R_cement_F_Yh
 
     L1321.in_EJ_R_cement_F_Y %>%
@@ -693,7 +697,8 @@ module_energy_L1321.cement <- function(command, ...) {
       add_legacy_name("L1321.in_EJ_R_cement_F_Y") %>%
       add_precursors("L102.CO2_Mt_R_F_Yh", "L123.in_EJ_R_elec_F_Yh", "L123.out_EJ_R_elec_F_Yh", "energy/IEA_cement_elec_kwht",
                      "energy/IEA_cement_thermal_energy_GJt_clinker_global_trend", "energy/mappings/cement_regions",
-                     "energy/IEA_cement_TPE_GJt",  "common/iso_GCAM_regID", "L1012.en_bal_EJ_R_Si_Fi_Yh") ->
+                     "energy/IEA_cement_TPE_GJt",  "common/iso_GCAM_regID", "L1012.en_bal_EJ_R_Si_Fi_Yh",
+                     "socioeconomics/region_proxy_47regions") ->
       L1321.in_EJ_R_cement_F_Y
 
     L1321.in_EJ_R_indenergy_F_Yh %>%
@@ -704,7 +709,8 @@ module_energy_L1321.cement <- function(command, ...) {
       add_legacy_name("L1321.in_EJ_R_indenergy_F_Yh") %>%
       add_precursors("L101.en_bal_EJ_ctry_Si_Fi_Yh_full", "L102.CO2_Mt_R_F_Yh", "L123.in_EJ_R_elec_F_Yh", "L123.out_EJ_R_elec_F_Yh", "energy/IEA_cement_elec_kwht",
                      "energy/IEA_cement_thermal_energy_GJt_clinker_global_trend", "energy/mappings/cement_regions",
-                     "energy/IEA_cement_elec_kwht_update", "energy/IEA_cement_TPE_GJt",  "L132.in_EJ_R_indenergy_F_Yh", "common/iso_GCAM_regID") ->
+                     "energy/IEA_cement_elec_kwht_update", "energy/IEA_cement_TPE_GJt",  "L132.in_EJ_R_indenergy_F_Yh", "common/iso_GCAM_regID",
+                     "socioeconomics/region_proxy_47regions") ->
       L1321.in_EJ_R_indenergy_F_Yh
 
     return_data(L1321.out_Mt_R_cement_Yh, L1321.IO_GJkg_R_cement_F_Yh, L1321.in_EJ_R_cement_F_Y, L1321.in_EJ_R_indenergy_F_Yh)

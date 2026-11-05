@@ -130,7 +130,7 @@ module_emissions_L252.MACC <- function(command, ...) {
       bind_rows(GCAM_sector_tech_resid,
                 GCAM_sector_tech_USAbld)
 
-    # update MAC using 2019 EPA
+    # Update MAC using the EPA source years declared in constants.R.
     # Prepare the table with all MAC curves for matching
     # This contains all tax and mac.reduction values
     L152.MAC_pct_R_S_Proc_EPA %>%
@@ -334,15 +334,22 @@ module_emissions_L252.MACC <- function(command, ...) {
       mutate(tech.change = if_else(tech.change < 0, 0, tech.change))
 
 
-    # since the current EPA MAC data (2019 version) only covers 2020 to 2050
-    # we assume constant post-2050 TCs as the average of pre-2050 values
+    # Only extrapolate beyond the final source year. The official 2025 annex
+    # already covers 2020-2100, so no post-2050 average may overwrite those years.
 
     # copy and paste average values for all future years, assuming constant tech.change (the average tech.change)
     L252.MAC_summary_TC_post2050_average <- L252.MAC_summary_TC_before2050 %>%
       group_by(region, supplysector, subsector, stub.technology, Non.CO2, mac.control, key) %>%
       summarise(tech.change = mean(tech.change)) %>%
-      ungroup() %>%
-      repeat_add_columns(tibble(year = emissions.EPA_MACC_FUTURE_YEAR))
+      ungroup()
+    if(length(emissions.EPA_MACC_FUTURE_YEAR)) {
+      L252.MAC_summary_TC_post2050_average <- L252.MAC_summary_TC_post2050_average %>%
+        repeat_add_columns(tibble(year = emissions.EPA_MACC_FUTURE_YEAR))
+    } else {
+      # repeat_add_columns uses a full join; an empty year table would create
+      # rows with NA years instead of the required empty extrapolation table.
+      L252.MAC_summary_TC_post2050_average <- L252.MAC_summary_TC_before2050[0, ]
+    }
 
     # combine together
     # L252.MAC_summary_TC_average contains TC for all future periods greater than MAC base-year for each region/sector

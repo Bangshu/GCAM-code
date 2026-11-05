@@ -234,6 +234,10 @@ module_emissions_L141.hfc_R_S_T_Y <- function(command, ...) {
       # Map EPA sectors to EDGAR_agg_sectors and GCAM supplysectors for matching
       left_join_error_no_match(EPA_fgas_sector_map, by = "EPA_sector") %>%
       select(GCAM_region_ID, supplysector, subsector, stub.technology, EDGAR_agg_sector, year, EPA_emissions) %>%
+      # Multiple EPA sectors can map to the same GCAM technology.
+      group_by(GCAM_region_ID, supplysector, subsector, stub.technology, EDGAR_agg_sector, year) %>%
+      summarise(EPA_emissions = sum(EPA_emissions)) %>%
+      ungroup() %>%
       complete(nesting(GCAM_region_ID, supplysector, subsector, stub.technology, EDGAR_agg_sector), year = c(year, HISTORICAL_YEARS)) %>%
       arrange(supplysector, year) %>%
       group_by(GCAM_region_ID, supplysector, subsector, stub.technology, EDGAR_agg_sector) %>%

@@ -170,7 +170,7 @@ module_socio_L100.GTAP <- function(command, ...) {
         add_title("GTAP capital stock data", overwrite = TRUE) %>%
         add_units("value share") %>%
         add_comments("Processed capital stock data for separate GCAM macro capital stock based on GTAP") %>%
-        add_comments("Expanded from 32-region GTAP structures to 47 GCAM-Pacific regions using GTAP_region_proxy_47regions") %>%
+        add_comments("Expanded from 32-region GTAP structures to active GCAM-Pacific regions using the structural proxy table (historical filename retained)") %>%
         add_precursors("common/iso_GCAM_regID",
                        "common/GCAM_region_names",
                        "socioeconomics/GTAP/GTAP_region_proxy_47regions",
@@ -323,7 +323,7 @@ module_socio_L100.GTAP <- function(command, ...) {
         add_units("share") %>%
         add_legacy_name("L100.GTAPCostShare_AgLU_reg_comm") %>%
         add_comments("Note that for livestock sectors, primary and secondary are aggregated while labor and capital are distinguished") %>%
-        add_comments("Expanded from 32-region GTAP structures to 47 GCAM-Pacific regions using GTAP_region_proxy_47regions") %>%
+        add_comments("Expanded from 32-region GTAP structures to active GCAM-Pacific regions using the structural proxy table (historical filename retained)") %>%
         add_precursors("common/GCAM_region_names",
                        "socioeconomics/GTAP/GTAP_region_proxy_47regions",
                        "socioeconomics/GTAP/GTAP_region_mapping",
@@ -357,7 +357,7 @@ module_socio_L100.GTAP <- function(command, ...) {
         add_units("share") %>%
         add_legacy_name("L100.GTAP_LaborCapitalCostShare_PrimaryAg_reg_Fish_Forest") %>%
         add_comments("The factor shares derived here will complement ILO data to derive the full data set in physical units") %>%
-        add_comments("Expanded from 32-region GTAP structures to 47 GCAM-Pacific regions using GTAP_region_proxy_47regions") %>%
+        add_comments("Expanded from 32-region GTAP structures to active GCAM-Pacific regions using the structural proxy table (historical filename retained)") %>%
         add_precursors("common/GCAM_region_names",
                        "socioeconomics/GTAP/GTAP_region_proxy_47regions",
                        "socioeconomics/GTAP/GTAP_region_mapping",

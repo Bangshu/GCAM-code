@@ -83,14 +83,10 @@ module_energy_L1012.en_bal_EFW <- function(command, ...) {
                                                    by = c("GCAM_region_ID", "sector", "fuel", "year")) %>%
       rename(initial_energy_EJ = value)
 
-    # PAC ID29 isolates small-island desalination, including the existing Seychelles
-    # record, so retain that regional record under a documented 20% ceiling.
-    L1012.en_bal_EJ_R_Si_Fi_Yh_desal <- L1012.en_bal_EJ_R_Si_Fi_Yh_desal %>%
-      mutate(pac_desal_max_share = if_else(
-        GCAM_region_ID == 29L, 0.20, efw.MAX_COMMIND_ENERGY_DESAL
-      ))
+    # Use the original GCAM threshold for every active region. The previous
+    # small-island exception must not be extended to the merged Rest of Pacific.
     stopifnot(with(subset(L1012.en_bal_EJ_R_Si_Fi_Yh_desal, initial_energy_EJ > 0),
-                   deduction_EJ / initial_energy_EJ < pac_desal_max_share))
+                   deduction_EJ / initial_energy_EJ < efw.MAX_COMMIND_ENERGY_DESAL))
 
     # Replace the corresponding values in the energy balance tables
     # left_join returns missing values for all unaffected sectors

@@ -45,7 +45,23 @@ module_energy_L1092.iron_steel_GrossTrade <- function(command, ...){
     GCAM_region_names <- get_data(all_data, "common/GCAM_region_names",strip_attributes = TRUE)
     iso_GCAM_regID <- get_data(all_data, "common/iso_GCAM_regID",strip_attributes = TRUE)
     comtrade_countrycode_ISO <- get_data(all_data, "energy/mappings/comtrade_countrycode_ISO",strip_attributes = TRUE)
-    Rt_iron_steel_bilateral_trade_data <- get_data(all_data, "energy/Rt_iron_steel_bilateral_trade",strip_attributes = TRUE) %>%
+    Rt_iron_steel_bilateral_trade_data <- get_data(all_data, "energy/Rt_iron_steel_bilateral_trade",strip_attributes = TRUE)
+    # As in Europe L1323, retain the last available year when the source ends
+    # before calibration. This supplies trade shares, not observed new trade.
+    last_trade_year <- max(as.numeric(Rt_iron_steel_bilateral_trade_data$Year))
+    missing_trade_years <- MODEL_BASE_YEARS[MODEL_BASE_YEARS > last_trade_year]
+    if(length(missing_trade_years)) {
+      warning("Rt steel trade: carrying ", last_trade_year, " forward to ",
+              paste(missing_trade_years, collapse = ", "), "; proxy trade shares, not observations.")
+      for(trade_year in missing_trade_years) {
+        Rt_iron_steel_bilateral_trade_data <- bind_rows(
+          Rt_iron_steel_bilateral_trade_data,
+          Rt_iron_steel_bilateral_trade_data %>%
+            filter(as.numeric(Year) == last_trade_year) %>%
+            mutate(Year = as.numeric(trade_year)))
+      }
+    }
+    Rt_iron_steel_bilateral_trade_data <- Rt_iron_steel_bilateral_trade_data %>%
       filter(Year %in% c("2000",MODEL_BASE_YEARS))
 
 
@@ -138,6 +154,9 @@ module_energy_L1092.iron_steel_GrossTrade <- function(command, ...){
     LB1092.Tradebalance_iron_steel_Mt_R_Y <- LB1092.Tradebalance_iron_steel_Mt_R_Y %>%
       left_join(Global_scaling_factors,by="year") %>%
       mutate(imports_reval=imports_reval*imports_export_scale,
+             # Recalculate after missing trade values were normalized above;
+             # retaining an earlier NA-to-zero domestic value breaks balance.
+             domestic_supply=production-exports_reval,
              consumption_reval=production-exports_reval+imports_reval) %>%
       select(-imports_export_scale)%>%
       gather(key="metric",value="value",'production':'domestic_supply') %>%
@@ -236,6 +255,10 @@ module_energy_L1092.iron_steel_GrossTrade <- function(command, ...){
     LB1092.Tradebalance_iron_steel_Mt_R_Y_ADJ <- bind_rows(prod_cons,imports %>%
                                                      select(-dom_supply_adjust,
                                                             -intra_exports),dom_supply,exports)
+
+    # Use the intra-region-adjusted result, as Europe L1092 does. Subtracting
+    # the same internal flow from imports and exports preserves net trade.
+    LB1092.Tradebalance_iron_steel_Mt_R_Y <- LB1092.Tradebalance_iron_steel_Mt_R_Y_ADJ
 
     # Produce outputs
     LB1092.Tradebalance_iron_steel_Mt_R_Y %>%

@@ -332,6 +332,20 @@ module_aglu_L100.FAO_preprocessing_OtherData <- function(command, ...) {
     }
 
 
+    # Pacific: agriculture-team proxy for missing North Korea depreciation rates.
+    # Copy South Korea's processed annual rates; leave FAO source capital stocks unchanged.
+    prk_region <- unique(iso_GCAM_regID$GCAM_region_ID[iso_GCAM_regID$iso == "prk"])
+    kor_region <- unique(iso_GCAM_regID$GCAM_region_ID[iso_GCAM_regID$iso == "kor"])
+    if (length(prk_region) == 1L && length(kor_region) == 1L &&
+        sum(iso_GCAM_regID$GCAM_region_ID == prk_region) == 1L &&
+        !prk_region %in% L100.FAO_Ag_Depreciation_Rate_R_Yh$GCAM_region_ID) {
+      L100.FAO_Ag_Depreciation_Rate_R_Yh %>%
+        filter(GCAM_region_ID == kor_region) %>%
+        mutate(GCAM_region_ID = prk_region) %>%
+        bind_rows(L100.FAO_Ag_Depreciation_Rate_R_Yh) ->
+        L100.FAO_Ag_Depreciation_Rate_R_Yh
+    }
+
     assertthat::assert_that(
       iso_GCAM_regID %>% distinct(GCAM_region_ID) %>%
         anti_join(L100.FAO_Ag_Depreciation_Rate_R_Yh  %>% distinct(GCAM_region_ID), by = "GCAM_region_ID") %>%
@@ -353,6 +367,7 @@ module_aglu_L100.FAO_preprocessing_OtherData <- function(command, ...) {
     L100.FAO_Ag_Depreciation_Rate_R_Yh %>%
       add_title("FAO primary Ag (Agriculture, Forestry and Fishing) depreciation rate for GCAM region and historical years") %>%
       add_comments("Derived as Consumption of Fixed Capital over Net Capital Stocks; FAO data available since 1995") %>%
+      add_comments("Only when North Korea is a separate active region with missing rates, South Korea annual depreciation rates are used as an agriculture-team proxy; never apply this proxy to a merged multi-country region.") %>%
       add_units("rate") %>%
       add_precursors("aglu/FAO/GCAMFAOSTAT_CapitalStock",
                      "aglu/AGLU_ctry",

@@ -102,6 +102,10 @@ module_gcamusa_L104.bcoc_en_S_T_Y <- function(command, ...) {
       left_join(BCOC_GCAM_sector_tech, by = c("sector", "technology", "fuel")) %>%
       # Where there is no correspondence remove those rows
       filter(!is.na(BCOC_agg_sector)) %>%
+      # Use the existing residential biomass class for the energy denominator.
+      mutate(technology = if_else(BCOC_agg_sector == "bld_resid" &
+                                   BCOC_agg_fuel == "biomass",
+                                 BCOC_agg_fuel, technology)) %>%
       # Now aggregate to BCOC aggregate sector/tech
       group_by(BCOC_agg_sector, technology) %>%
       summarize_if(is.numeric, sum) %>%

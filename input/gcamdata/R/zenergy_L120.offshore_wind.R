@@ -151,7 +151,8 @@ module_energy_L120.offshore_wind <- function(command, ...) {
       arrange(GCAM_region_ID, price) %>%
       mutate(base.price = min(price),
              Pvar = price - base.price,
-             maxSubResource = round(max(supply), energy.DIGITS_MAX_SUB_RESOURCE)) %>%
+             maxSubResource = if (n() == 1L) max(supply) else
+               round(max(supply), energy.DIGITS_MAX_SUB_RESOURCE)) %>%
       ungroup() -> L120.offshore_wind_curve
 
     # Approximate mid-price using first supply points that are less than (p1, Q1) and greater than (p2,Q2) 50% of maxSubResource.
@@ -185,6 +186,16 @@ module_energy_L120.offshore_wind <- function(command, ...) {
       mutate(mid.price = round(((P2 - P1) * maxSubResource + 2 * Q2 * P1 - 2 * Q1 * P2) / (2 * (Q2 - Q1)),
                                energy.DIGITS_MAX_SUB_RESOURCE)) %>%
       select(GCAM_region_ID, mid.price) -> L120.mid.price
+
+    # Follow the single-point convention in v9.1 L2231.wind_update: use the
+    # available price, not a fabricated second resource bin. This is a model
+    # assumption: one point cannot identify a smooth supply curve's shape.
+    L120.offshore_wind_curve %>%
+      group_by(GCAM_region_ID) %>%
+      filter(n() == 1L) %>%
+      ungroup() %>%
+      select(GCAM_region_ID, mid.price = price) %>%
+      bind_rows(L120.mid.price) -> L120.mid.price
 
     # Add 0 for missing region midpoint
     missing_regions_mid_price_df <- data.frame(GCAM_region_ID = missing_regions) %>%

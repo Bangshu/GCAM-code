@@ -30,6 +30,7 @@ module_energy_L111.rsrc_fos_Prod <- function(command, ...) {
              FILE = "energy/rsrc_unconv_oil_prod_bbld",
              FILE = "energy/A11.fos_curves",
              "L100.IEA_en_bal_ctry_hist",
+             "L101.en_bal_EJ_ctry_Si_Fi_Yh_full",
              "L1012.en_bal_EJ_R_Si_Fi_Yh"))
   } else if(command == driver.DECLARE_OUTPUTS) {
     return(c("L111.Prod_EJ_R_F_Yh",
@@ -54,6 +55,7 @@ module_energy_L111.rsrc_fos_Prod <- function(command, ...) {
     rsrc_unconv_oil_prod_bbld <- get_data(all_data, "energy/rsrc_unconv_oil_prod_bbld")
     A11.fos_curves <- get_data(all_data, "energy/A11.fos_curves")
     L100.IEA_en_bal_ctry_hist <- get_data(all_data, "L100.IEA_en_bal_ctry_hist", strip_attributes = TRUE)
+    L101.en_bal_EJ_ctry_Si_Fi_Yh_full <- get_data(all_data, "L101.en_bal_EJ_ctry_Si_Fi_Yh_full", strip_attributes = TRUE)
     L1012.en_bal_EJ_R_Si_Fi_Yh <- get_data(all_data, "L1012.en_bal_EJ_R_Si_Fi_Yh", strip_attributes = TRUE)
 
     # ------- HISTORICAL FOSSIL ENERGY PRODUCTION
@@ -191,15 +193,25 @@ module_energy_L111.rsrc_fos_Prod <- function(command, ...) {
       L111.PAC_parent_map <- GCAM32_to_PAC %>%
         dplyr::select(GCAM_region_ID, GCAM32_region_ID) %>%
         dplyr::distinct()
-      if (anyDuplicated(L111.PAC_parent_map$GCAM_region_ID)) {
-        stop("GCAM32_to_PAC must map every active Pacific region to one parent.")
-      }
+      # A target can cross old parent boundaries (Australia_NZ includes cck/cxr).
+      # Split only that target's production between its historical parents using
+      # country production; never count its entire production in both parents.
+      L111.PAC_country_prod <- L101.en_bal_EJ_ctry_Si_Fi_Yh_full %>%
+        dplyr::filter(sector == "out_resources", fuel %in% energy.RSRC_FUELS,
+                      year %in% HISTORICAL_YEARS) %>%
+        dplyr::select(iso, fuel, value) %>%
+        left_join_error_no_match(
+          dplyr::select(GCAM32_to_PAC, iso, GCAM_region_ID, GCAM32_region_ID), by = "iso"
+        ) %>%
+        dplyr::mutate(fuel = dplyr::recode(fuel, "refined liquids" = "crude oil", "gas" = "natural gas")) %>%
+        dplyr::group_by(GCAM_region_ID, GCAM32_region_ID, fuel) %>%
+        dplyr::summarise(country_production_EJ = sum(value), .groups = "drop")
       L111.PAC_split_parents <- L111.PAC_parent_map %>%
         dplyr::count(GCAM32_region_ID, name = "child_count") %>%
         dplyr::filter(child_count > 1L) %>%
         dplyr::pull(GCAM32_region_ID)
       L111.PAC_prod_shares <- tidyr::crossing(
-        GCAM_region_ID = GCAM_region_names$GCAM_region_ID,
+        L111.PAC_parent_map,
         fuel = c("coal", "crude oil", "natural gas")
       ) %>%
         dplyr::left_join(
@@ -209,8 +221,16 @@ module_energy_L111.rsrc_fos_Prod <- function(command, ...) {
             dplyr::summarise(production_EJ = sum(value), .groups = "drop"),
           by = c("GCAM_region_ID", "fuel")
         ) %>%
-        tidyr::replace_na(list(production_EJ = 0)) %>%
-        left_join_error_no_match(L111.PAC_parent_map, by = "GCAM_region_ID") %>%
+        dplyr::left_join(L111.PAC_country_prod,
+                        by = c("GCAM_region_ID", "GCAM32_region_ID", "fuel")) %>%
+        tidyr::replace_na(list(production_EJ = 0, country_production_EJ = 0)) %>%
+        dplyr::group_by(GCAM_region_ID, fuel) %>%
+        dplyr::mutate(
+          country_fraction = if (dplyr::n() == 1L) 1 else if (sum(country_production_EJ) > 0)
+            country_production_EJ / sum(country_production_EJ) else if (all(production_EJ == 0)) 0 else NA_real_,
+          production_EJ = production_EJ * country_fraction
+        ) %>%
+        dplyr::ungroup() %>%
         dplyr::group_by(GCAM32_region_ID, fuel) %>%
         dplyr::mutate(
           parent_production_EJ = sum(production_EJ),
@@ -252,13 +272,22 @@ module_energy_L111.rsrc_fos_Prod <- function(command, ...) {
       L111.RsrcCurves_EJ_R_Ffos <- dplyr::bind_rows(
         dplyr::filter(L111.RsrcCurves_EJ_R_Ffos_prebuilt, !GCAM_region_ID %in% L111.PAC_split_parents),
         dplyr::select(L111.PAC_split_curve, GCAM_region_ID, resource, subresource, grade, available, extractioncost)
-      ) %>%
+      )
+      if (any(L111.RsrcCurves_EJ_R_Ffos %>%
+              dplyr::group_by(GCAM_region_ID, resource, subresource, grade) %>%
+              dplyr::summarise(n_cost = dplyr::n_distinct(extractioncost), .groups = "drop") %>%
+              dplyr::pull(n_cost) != 1L)) {
+        stop("Cannot merge resource grades with different extraction costs.")
+      }
+      L111.RsrcCurves_EJ_R_Ffos <- L111.RsrcCurves_EJ_R_Ffos %>%
+        dplyr::group_by(GCAM_region_ID, resource, subresource, grade) %>%
+        dplyr::summarise(available = sum(available), extractioncost = dplyr::first(extractioncost), .groups = "drop") %>%
         dplyr::arrange(GCAM_region_ID, resource, subresource, grade) %>%
         same_attributes_as(L111.RsrcCurves_EJ_R_Ffos_prebuilt) %>%
-        add_comments("PAC 47-region prebuilt resource curves are allocated by historical fossil production shares.") %>%
-        add_precursors("common/GCAM32_to_PAC", "L111.Prod_EJ_R_F_Yh")
+        add_comments("Active PAC resource curves use historical production shares; cross-parent target shares use country production. Legacy resource totals are conserved; these are inherited resource assumptions.") %>%
+        add_precursors("common/GCAM32_to_PAC", "L111.Prod_EJ_R_F_Yh", "L101.en_bal_EJ_ctry_Si_Fi_Yh_full")
       if (!setequal(L111.RsrcCurves_EJ_R_Ffos$GCAM_region_ID, GCAM_region_names$GCAM_region_ID)) {
-        stop("Pacific resource curves do not cover exactly the active 47 regions.")
+        stop("Pacific resource curves do not cover exactly the active regions.")
       }
     } else {
 
