@@ -1,7 +1,7 @@
 # Copyright 2019 Battelle Memorial Institute; see the LICENSE file.
 
-# GCAM-Pacific 47-region modification: when distributed prebuilt GTAP objects
-# still use 32 regions, expand their structural shares to 47 regions through an
+# GCAM-Pacific 43-region modification: when distributed prebuilt GTAP objects
+# still use 32 regions, expand their structural shares to 43 regions through an
 # explicit parent map. This is a geographic fallback, not new GTAP evidence.
 
 #' module_socio_L100.GTAP
@@ -144,7 +144,7 @@ module_socio_L100.GTAP <- function(command, ...) {
 
     # The raw GTAP matrices are optional and are not distributed with this repository. When those source files are
     # absent, the module falls back to prebuilt 32-region GTAP structures. Expand those structural shares to the
-    # current 47-region GCAM-Pacific mapping using an explicit parent-region proxy table. This does not create new
+    # current 43-region GCAM-Pacific mapping using an explicit parent-region proxy table. This does not create new
     # country-level GTAP observations; it only assigns each split region the cost-share/capital-stock structure of
     # its documented 32-region parent.
     if(length(unique(L100.GTAP_capital_stock$region)) < nrow(GCAM_region_names)) {

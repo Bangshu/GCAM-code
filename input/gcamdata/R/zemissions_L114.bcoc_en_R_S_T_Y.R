@@ -35,7 +35,7 @@ module_emissions_L114.bcoc_en_R_S_T_Y <- function(command, ...) {
     return(c("L114.bcoc_tgej_R_en_S_F_2000"))
   } else if(command == driver.MAKE) {
 
-    BCOC_agg_fuel <- BCOC_agg_sector <- CEDS_sector <- Non.CO2 <- GCAM_region_ID <-
+    BCOC_agg_fuel <- BCOC_agg_sector <- Country <- Non.CO2 <- GCAM_region_ID <-
       RCP_agg_sector <- emissions.factor <- energy <- fuel <- input.emissions <-
       iso  <- scaled_emissions <- scaler <- sector <- stub.technology <- subsector <-
       supplysector <- technology <- unscaled_emissions <- year <- NULL # silence package check notes
@@ -99,35 +99,22 @@ module_emissions_L114.bcoc_en_R_S_T_Y <- function(command, ...) {
       summarise(unscaled_emissions = sum(unscaled_emissions)) %>%
       ungroup()
 
-    # CEDS reports ktC; L114's scaling inventory is kgC before conversion to Tg.
-    prepare_ceds_bcoc <- function(ceds_data, gas) {
-      names(ceds_data) <- sub("^X(?=(1|2)[0-9]{3}$)", "", names(ceds_data), perl = TRUE)
-      ceds_data %>%
-        mutate(iso = dplyr::if_else(iso == "rou", "rom", iso),
-               iso = dplyr::if_else(iso == "sxm", "ant", iso),
-               iso = dplyr::if_else(iso == "srb (kosovo)", "srb", iso),
-               Non.CO2 = gas,
-               scaled_emissions = `2000` * 1e6) %>%
-        inner_join(CEDS_to_RCP_BCOC_L114, by = c("sector" = "CEDS_sector")) %>%
-        select(iso, Non.CO2, RCP_agg_sector, scaled_emissions)
-    }
-
-    # Complete the ISO-gas-sector grid so documented CEDS no-data territories contribute zero,
-    # rather than silently disappearing from their assigned Pacific region.
-    BCOC_CEDS_skeleton <- iso_GCAM_regID %>%
-      select(iso) %>%
-      distinct() %>%
-      repeat_add_columns(tibble(Non.CO2 = c("BC", "OC"))) %>%
-      repeat_add_columns(tibble(RCP_agg_sector = c("dom", "ene", "ind", "tra")))
-
-    BCOC_emissions_RCP <- bind_rows(prepare_ceds_bcoc(CEDS_BC, "BC"),
-                                    prepare_ceds_bcoc(CEDS_OC, "OC")) %>%
-      group_by(iso, Non.CO2, RCP_agg_sector) %>%
-      summarise(scaled_emissions = sum(scaled_emissions)) %>%
-      ungroup() %>%
-      dplyr::right_join(BCOC_CEDS_skeleton, by = c("iso", "Non.CO2", "RCP_agg_sector")) %>%
-      mutate(scaled_emissions = dplyr::if_else(is.na(scaled_emissions), 0, scaled_emissions),
-             scaled_emissions = scaled_emissions * CONV_KG_TO_TG) %>%
+    # Prepare the inventory estimates for joining into the table of unscaled emissions by RCP inventory categories
+    # PAC: the CEDS 2025 year-2000 inventory replaces Global's RCP_BC/OC_2000; CEDS combustion sectors
+    # are mapped to the same RCP categories, so the scaling method below is unchanged.
+    BCOC_emissions_RCP <- bind_rows(mutate(CEDS_BC, Non.CO2 = "BC"),
+                                    mutate(CEDS_OC, Non.CO2 = "OC")) %>%
+      # international shipping/aviation are reported under "global" and have no country driver
+      filter(iso != "global") %>%
+      gather_years(value_col = "scaled_emissions") %>%
+      filter(year == 2000) %>%
+      inner_join(CEDS_to_RCP_BCOC_L114, by = c("sector" = "CEDS_sector")) %>%
+      # same CEDS-to-GCAM iso corrections as L102
+      change_iso_code('rou', 'rom') %>%
+      change_iso_code('srb (kosovo)', 'srb') %>%
+      change_iso_code('sxm', 'ant') %>%
+      # CEDS units are kt (Gg); convert to Tg
+      mutate(scaled_emissions = scaled_emissions * CONV_GG_TG) %>%
       left_join_error_no_match(iso_GCAM_regID, by = "iso") %>%
       group_by(GCAM_region_ID, Non.CO2, RCP_agg_sector) %>%
       summarise(scaled_emissions = sum(scaled_emissions)) %>%
@@ -136,15 +123,8 @@ module_emissions_L114.bcoc_en_R_S_T_Y <- function(command, ...) {
     # Join the scaled emissions totals from the RCP inventory back into the table of unscaled emissions to compute scalers
     BCOC_emissions_scaler <- BCOC_unscaled_emissions_RCP %>%
       left_join_error_no_match(BCOC_emissions_RCP, by = c("GCAM_region_ID", "Non.CO2", "RCP_agg_sector")) %>%
-      # A zero inventory and a zero energy-default estimate describe no emissions
-      # to allocate; define their otherwise undefined 0 / 0 scaler as zero.
-      mutate(scaler = dplyr::if_else(scaled_emissions == 0 & unscaled_emissions == 0,
-                                     0, scaled_emissions / unscaled_emissions)) %>%
+      mutate(scaler = scaled_emissions / unscaled_emissions) %>%
       select(GCAM_region_ID, Non.CO2, RCP_agg_sector, scaler)
-
-    if(any(!is.finite(BCOC_emissions_scaler$scaler))) {
-      stop("Cannot calculate an L114 BC/OC scaler with nonzero CEDS emissions and zero energy-default emissions")
-    }
 
     # Multiply these scalers by the unscaled emissions by GCAM region, sector, and technology to compute scaled emissions
     BCOC_scaled_emissions <- BCOC_unscaled_emissions %>%

@@ -41,7 +41,7 @@ module_emissions_L102.nonco2_ceds_R_S_Y <- function(command, ...) {
 
       # Silence package checks
       iso <- em <- CEDS_sector <- fuel <- unit <- year <- UCD_category <- value <- GCAM_region_ID <-
-        emissions <- sector <- Non.CO2 <- CEDS_agg_sector <- CEDS_agg_fuel <- share_in_global_ship <- last_year <- NULL
+        emissions <- sector <- Non.CO2 <- CEDS_agg_sector <- CEDS_agg_fuel <- share_in_global_ship <- NULL
 
 
       all_data <- list(...)[[1]]
@@ -61,25 +61,6 @@ module_emissions_L102.nonco2_ceds_R_S_Y <- function(command, ...) {
       #Introducing N2O
       CEDS_N2O <- get_data(all_data, "emissions/CEDS/N2O_total_CEDS_emissions", strip_attributes = TRUE)
 
-      # CEDS staging files may retain R-style XYYYY year headers; normalize them for gather_years.
-      normalize_ceds_input_columns <- function(data) {
-        names(data) <- sub("^X(?=(1|2)[0-9]{3}$)", "", names(data), perl = TRUE)
-        if("unit" %in% names(data) && !("units" %in% names(data))) {
-          names(data)[names(data) == "unit"] <- "units"
-        }
-        data
-      }
-      CEDS_CH4 <- normalize_ceds_input_columns(CEDS_CH4)
-      CEDS_BC <- normalize_ceds_input_columns(CEDS_BC)
-      CEDS_NMVOC <- normalize_ceds_input_columns(CEDS_NMVOC)
-      CEDS_NH3 <- normalize_ceds_input_columns(CEDS_NH3)
-      CEDS_OC <- normalize_ceds_input_columns(CEDS_OC)
-      CEDS_CO <- normalize_ceds_input_columns(CEDS_CO)
-      CEDS_NOx <- normalize_ceds_input_columns(CEDS_NOx)
-      CEDS_SO2 <- normalize_ceds_input_columns(CEDS_SO2)
-      CEDS_CO2_all <- normalize_ceds_input_columns(CEDS_CO2_all)
-      CEDS_N2O <- normalize_ceds_input_columns(CEDS_N2O)
-
 
       CEDS_sector_map <- get_data(all_data, "emissions/CEDS/ceds_sector_map", strip_attributes = TRUE)
       CEDS_fuel_map <- get_data(all_data, "emissions/CEDS/ceds_fuel_map", strip_attributes = TRUE)
@@ -89,7 +70,7 @@ module_emissions_L102.nonco2_ceds_R_S_Y <- function(command, ...) {
 
       # If the (proprietary) raw CEDS datasets are available, go through the full computations below
       # If not, use the pre-saved summary file (i.e., the output of this chunk!) assuming it's available
-      if(!is.null(CEDS_CH4) && !is.null(CEDS_BC) && !is.null(CEDS_OC) && !is.null(CEDS_CO) && !is.null(CEDS_NMVOC) && !is.null(CEDS_NH3) && !is.null(CEDS_NOx) && !is.null(CEDS_SO2) && !is.null(CEDS_CO2_all) && !is.null(CEDS_N2O)) {
+      if(!is.null(CEDS_CH4) && !is.null(CEDS_BC) && !is.null(CEDS_OC) && !is.null(CEDS_CO) && !is.null(CEDS_NMVOC) && !is.null(CEDS_NH3) && !is.null(CEDS_NOx) && !is.null(CEDS_SO2) && !is.null(CEDS_CO2_all)) {
 
         # for CO2, keep only fugitive emissions
         CEDS_CO2 <- CEDS_CO2_all %>%
@@ -155,20 +136,6 @@ module_emissions_L102.nonco2_ceds_R_S_Y <- function(command, ...) {
           na.omit() %>%
           filter(year %in% emissions.CEDS_YEARS)->L102.CMIP_unmgd_emissions
 
-        # CEDS and GFED have independent source-year coverage. PAC decision
-        # 2026-10-25 retains the official fire inventory through 2015; later
-        # observations are not fabricated. Keep downstream model rules unchanged.
-        L102.CMIP_unmgd_emissions %>%
-          group_by(iso, sector, fuel, units, Non.CO2) %>%
-          summarise(last_year = max(year), .groups = "drop") %>%
-          filter(last_year < max(HISTORICAL_YEARS)) -> CMIP_missing_years
-        if(nrow(CMIP_missing_years)) {
-          if(any(CMIP_missing_years$last_year < min(2015L, max(HISTORICAL_YEARS)))) {
-            stop("GFED-CMIP6_LUC_emissions.csv does not reach the accepted official source end year (2015) for all existing country/gas/fire-sector series.")
-          }
-          warning(paste0("PAC decision 2026-10-25: retain official GFED fire observations through 2015 for ",
-                         nrow(CMIP_missing_years), " country/gas/fire-sector series. No later fire observations are added; downstream model rules are unchanged."))
-        }
 
         # Compute CEDS emissions by region and sector
         bind_rows(CEDS_CH4 ,CEDS_BC, CEDS_NMVOC, CEDS_NH3, CEDS_OC, CEDS_NOx, CEDS_SO2, CEDS_CO, CEDS_N2O, CEDS_CO2) -> CEDS_data

@@ -75,12 +75,11 @@ module_socio_L100.Employment <- function(command, ...) {
         iso     = tolower(`ISO3 Code`),
         country = Country ) %>%
       # Fix ILO country mapping label encoding issues
-      # Unicode escapes preserve these labels when R sources this file in the C locale.
       mutate(
         country = dplyr::case_when(
-          country == "C te d Ivoire" ~ "C\u00f4te d'Ivoire",
-          country == "T rkiye"       ~ "T\u00fcrkiye",
-          country == "R union"       ~ "R\u00e9union",
+          country == "C te d Ivoire" ~ "Côte d'Ivoire",
+          country == "T rkiye"       ~ "Türkiye",
+          country == "R union"       ~ "Réunion",
           TRUE                       ~ country )
       )
 

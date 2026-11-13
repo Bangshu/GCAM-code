@@ -940,8 +940,8 @@ emissions.CTRL_BASE_YEAR          <- 1975                # Year to read in pollu
 emissions.DEFOREST_COEF_YEARS     <- c(2000, 2005)
 emissions.EDGAR_YEARS             <- 1971:2008
 emissions.EPA_HISTORICAL_YEARS    <- 1971:2002
-emissions.EPA_MACC_YEAR           <- seq(2020, 2100, 5)        # EPA 2025 official annex MAC years
-emissions.EPA_MACC_FUTURE_YEAR    <- MODEL_FUTURE_YEARS[MODEL_FUTURE_YEARS > max(emissions.EPA_MACC_YEAR)]
+emissions.EPA_MACC_YEAR           <- seq(2015, 2050, 5)        # based on 2019 EPA nonCO2 report
+emissions.EPA_MACC_FUTURE_YEAR    <- seq(2055, 2100, 5)        # EPA report only covers till 2050
 emissions.EPA_TC_TIMESTEP         <- 5   # currently calculate EPA MAC-based technological change based on every 5 years
 emissions.EPA_BAU_HIST_YEAR       <- c(1990, 1995, 2000, 2005, 2010, 2015) # based on 2019 EPA nonCO2 report
 emissions.FINAL_EMISS_YEAR        <- min(MODEL_FINAL_BASE_YEAR, 2005)
